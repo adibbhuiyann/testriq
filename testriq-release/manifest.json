@@ -1,0 +1,19 @@
+{
+  "name": "Testriq \u2014 IELTS Practice & Speaking Coach",
+  "short_name": "Testriq",
+  "description": "IELTS, SAT and PTE practice with voice-guided speaking activities.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#10172b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
