@@ -31,11 +31,11 @@ jobs:
           java-version: 21
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-             - name: Accept Android SDK licenses
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: 'true'
+          log-accepted-android-sdk-licenses: 'false'
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
