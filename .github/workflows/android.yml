@@ -82,12 +82,22 @@ jobs:
           EOF
 
 
-      - name: Add camera and microphone permissions
+ 
+      - name: Generate Android project and add permissions
         run: |
+          npx cap add android
+          npx cap sync android
+
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("android/app/src/main/AndroidManifest.xml")
+
+          if not path.exists():
+              raise FileNotFoundError(
+                  "AndroidManifest.xml was not generated!"
+              )
+
           content = path.read_text()
 
           permissions = """
@@ -97,11 +107,15 @@ jobs:
           """
 
           if "android.permission.CAMERA" not in content:
-              content = content.replace("</manifest>", permissions + "\n</manifest>")
+              content = content.replace(
+                  "</manifest>",
+                  permissions + "\n</manifest>"
+              )
 
           path.write_text(content)
           print("Camera and microphone permissions added!")
           PY
+
 
 
       - name: Build APK
