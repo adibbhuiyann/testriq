@@ -68,8 +68,94 @@ jobs:
       - name: Install Capacitor
         run: |
           npm init -y
-          npm install @capacitor/core@^8 @capacitor/android@^8
-          npm install --save-dev @capacitor/cli@^8
+          npm install @capacitor/core@^8 @capacitor/android@^8 @capacitor-community/text-to-speech@^8.0.2
+          npm install --save-dev @capacitor/cli@^8 esbuild
+
+          
+      - name: Build Testriq speech bridge
+        run: |
+          cat > testriq-speech-entry.js <<'EOF'
+          import { TextToSpeech } from '@capacitor-community/text-to-speech';
+
+          let currentId = null;
+          let stopPromise = Promise.resolve();
+
+          const rangeListenerReady = TextToSpeech.addListener('onRangeStart', (event) => {
+            if (currentId !== null) {
+              window.testriqSpeechEvent?.(
+                currentId,
+                'word',
+                event.start,
+                event.end
+              );
+            }
+          });
+
+          window.TestriqSpeech = {
+            async speak(text, id, volume = 1) {
+              const requestId = String(id);
+              currentId = requestId;
+
+              try {
+                await stopPromise;
+                await rangeListenerReady;
+
+                if (currentId !== requestId) return;
+
+                window.testriqSpeechEvent?.(requestId, 'start');
+
+                await TextToSpeech.speak({
+                  text: String(text),
+                  lang: 'en-GB',
+                  rate: 0.92,
+                  pitch: 1,
+                  volume: Math.max(0, Math.min(1, Number(volume) || 0))
+                });
+
+                if (currentId === requestId) {
+                  window.testriqSpeechEvent?.(requestId, 'end');
+                  currentId = null;
+                }
+              } catch (error) {
+                if (currentId === requestId) {
+                  window.testriqSpeechEvent?.(requestId, 'error');
+                  currentId = null;
+                }
+              }
+            },
+
+            async stop() {
+              currentId = null;
+              stopPromise = TextToSpeech.stop().catch(() => {});
+              await stopPromise;
+            }
+          };
+          EOF
+
+          npx esbuild testriq-speech-entry.js \
+            --bundle \
+            --format=iife \
+            --platform=browser \
+            --outfile=www/testriq-speech.js
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("www/index.html")
+          html = path.read_text()
+          tag = '<script src="./testriq-speech.js"></script>'
+
+          if tag not in html:
+              match = re.search(r"<script\b", html, re.IGNORECASE)
+              if match is None:
+                  raise RuntimeError("Could not find a script tag in www/index.html")
+              html = html[:match.start()] + tag + "\n" + html[match.start():]
+              path.write_text(html)
+
+          print("Testriq speech bridge added!")
+          PY
+
 
       - name: Configure Capacitor
         run: |
@@ -88,34 +174,48 @@ jobs:
           npx cap add android
           npx cap sync android
 
+
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("android/app/src/main/AndroidManifest.xml")
 
           if not path.exists():
-              raise FileNotFoundError(
-                  "AndroidManifest.xml was not generated!"
-              )
+              raise FileNotFoundError("AndroidManifest.xml was not generated!")
 
           content = path.read_text()
 
-          permissions = """
-              <uses-permission android:name="android.permission.CAMERA" />
-              <uses-permission android:name="android.permission.RECORD_AUDIO" />
-              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-          """
+          required = [
+              "android.permission.CAMERA",
+              "android.permission.RECORD_AUDIO",
+              "android.permission.MODIFY_AUDIO_SETTINGS",
+          ]
 
-          if "android.permission.CAMERA" not in content:
-              content = content.replace(
-                  "</manifest>",
-                  permissions + "\n</manifest>"
+          missing = [p for p in required if p not in content]
+
+          if missing:
+              application = re.search(r"<application\b", content)
+
+              if application is None:
+                  raise RuntimeError("Could not find application element!")
+
+              permission_tags = "\n".join(
+                  f'    <uses-permission android:name="{p}" />'
+                  for p in missing
               )
 
-          path.write_text(content)
-          print("Camera and microphone permissions added!")
-          PY
+              content = (
+                  content[:application.start()]
+                  + permission_tags
+                  + "\n\n"
+                  + content[application.start():]
+              )
 
+              path.write_text(content)
+
+          print("Android permissions configured!")
+          PY
 
 
       - name: Build APK
