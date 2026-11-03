@@ -128,4 +128,113 @@ let state={theme:"light",reduceMotion:false,largeText:false,audio:true,name:"Lea
   clock=setInterval(()=>{sec++;const el=$('#speakTimer');if(el)el.textContent=fmt(sec)},1000);speakingClock=clock;renderPrompt();openModal();
 }
 $$('[data-nav]').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.nav)));$('#examFilters').onclick=e=>{let b=e.target.closest('[data-exam]');if(!b)return;state.activeExam=b.dataset.exam;renderTests()};$('#skillFilters').onclick=e=>{let b=e.target.closest('[data-skill]');if(!b)return;state.activeSkill=b.dataset.skill;renderTests()};$('#closeModal').onclick=closeModal;$('#modalBack').onclick=e=>{if(e.target.id==='modalBack')closeModal()};$('#quickTheme').onclick=()=>{state.theme=state.theme==='light'?'dark':'light';applySettings();save()};$('#themeSelect').onchange=e=>{state.theme=e.target.value;applySettings();save()};$('#motionSwitch').onclick=()=>{state.reduceMotion=!state.reduceMotion;applySettings();save()};$('#fontSwitch').onclick=()=>{state.largeText=!state.largeText;applySettings();save()};$('#audioSwitch').onclick=()=>{state.audio=!state.audio;applySettings();save()};$('#nameInput').onchange=e=>{state.name=e.target.value.trim()||'Learner';applySettings();save()};$('#goalSelect').onchange=e=>{state.goal=e.target.value;save()};$('#exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='testriq-my-data.json';a.click();URL.revokeObjectURL(u)};$('#resetBtn').onclick=()=>{if(confirm('Delete all Testriq results, settings and drafts saved in this browser?')){localStorage.clear();state={theme:'light',reduceMotion:false,largeText:false,audio:true,name:'Learner',goal:'10',results:[],activityDates:[],writing:{},activeExam:'All',activeSkill:'All'};renderAll();toast('Local Testriq data has been reset.')}};function renderAll(){renderCourses();renderDash();renderTests();renderResults();renderProgress();applySettings()}load();renderAll();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
-</script><script src="./bank.js"></script></body></html>
+</script><script>
+/* Adib Bhuiyan — free on-device examiner: browser voice + speech recognition + rule-based rating. No server, no API key. */
+(function(){
+const EX='Adib Bhuiyan',SR=window.SpeechRecognition||window.webkitSpeechRecognition,sleep=ms=>new Promise(r=>setTimeout(r,ms)),pick=a=>a[Math.floor(Math.random()*a.length)];
+const AI_URL='';/* paste your Cloudflare Worker URL here (see worker.js). Empty = free on-device rating only */
+let voice=null,run=0,stream=null,ac=null,an=null,micBad=false,onMicReady=null;
+const mt=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>window.MediaRecorder&&MediaRecorder.isTypeSupported(x))||'';
+const b64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(b)});
+function loadVoice(){if(!('speechSynthesis'in window))return;const v=speechSynthesis.getVoices();voice=v.find(x=>/en-GB/i.test(x.lang)&&/\b(male|daniel|oliver|george|ryan|arthur)\b/i.test(x.name))||v.find(x=>/en-GB/i.test(x.lang))||v.find(x=>/^en/i.test(x.lang))||null}
+loadVoice();if('speechSynthesis'in window)speechSynthesis.onvoiceschanged=loadVoice;
+const isOpen=()=>$('#modalBack').classList.contains('open');
+const W=s=>(String(s).toLowerCase().match(/[a-z’'-]+/g)||[]);
+const STOP=new Set('the a an and or but to of in on at for with is are was were be been it this that i you he she we they my your me so as by from not have has had do does did very really just there their what because'.split(' '));
+function say(text){return new Promise(res=>{if(!state.audio||!('speechSynthesis'in window)){setTimeout(res,Math.min(3500,text.length*35));return}
+ try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='en-GB';u.rate=.93;if(voice)u.voice=voice;let d=0;const end=()=>{if(!d){d=1;clearTimeout(tm);res()}};u.onend=end;u.onerror=end;const tm=setTimeout(end,text.length*85+3000);speechSynthesis.speak(u)}catch(e){res()}})}
+function estimate(list){
+ const text=list.map(x=>x.text).join(' '),w=W(text),n=w.length;if(!n)return null;
+ const u=new Set(w).size,sents=Math.max(1,text.split(/[.!?]+/).filter(x=>x.trim()).length),
+ fill=(text.match(/\b(um+|uh+|er+|erm|you know|i mean|basically|kind of|sort of)\b/gi)||[]).length,
+ conn=(text.match(/\b(however|because|although|though|for example|for instance|in addition|moreover|therefore|as a result|on the other hand|whereas|while|firstly|secondly|finally|in my opinion|in contrast|so that|besides|in fact)\b/gi)||[]).length,
+ cx=(text.match(/\b(which|who|whom|whose|if|when|unless|although|because|while|whereas|would|could|might|should)\b/gi)||[]).length,
+ past=/\b(was|were|had|went|did|\w+ed)\b/i.test(text),fut=/\b(will|going to|would)\b/i.test(text),perf=/\b(have|has|had) (been|\w+ed|done|seen|made|gone|had)\b/i.test(text),
+ long=w.filter(x=>x.length>=8).length,cnt={};w.forEach(x=>{if(!STOP.has(x)&&x.length>3)cnt[x]=(cnt[x]||0)+1});
+ const rep=Object.entries(cnt).filter(e=>e[1]>=4).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]),
+ avg=n/Math.max(1,list.filter(x=>x.text.trim()).length),secs=list.reduce((s,x)=>s+(x.sec||0),0),wpm=secs>20?n/(secs/60):null,
+ c=x=>Math.round(Math.max(1,Math.min(7.5,x))*2)/2,
+ fl=4.5+Math.min(1.5,avg/50*1.5)+Math.min(1,conn/Math.max(1,n/40)*.5)-Math.min(1,fill/n*25)+(wpm&&wpm>=90&&wpm<=170?.5:0),
+ lx=4.5+Math.min(1.5,u/n*2)+Math.min(1,long/n*10)-Math.min(1,rep.length*.3),
+ gr=4.5+Math.min(1.5,cx/Math.max(1,n/30)*.6)+(past?.4:0)+(fut?.3:0)+(perf?.4:0)+(n/sents>=8&&n/sents<=24?.5:0),
+ o={fl:c(fl),lx:c(lx),gr:c(gr),n,avg:Math.round(avg),wpm:wpm?Math.round(wpm):null,fill,conn,rep};
+ o.band=Math.round((o.fl+o.lx+o.gr)/3*2)/2;return o}
+function tips(s){const a=[];
+ if(s.avg<25)a.push('Your answers are short. Aim for 3–4 sentences: point, reason, example, then link back to the question.');
+ else if(s.avg<45)a.push('Good length. Add a specific example ("For instance, last year I…") to move toward higher bands.');
+ if(s.fill>2)a.push(`Fillers detected (${s.fill}). Pause silently instead of saying "um" or "you know".`);
+ if(s.conn<Math.max(2,s.n/60))a.push('Use more linking phrases: however, as a result, on the other hand, for example.');
+ if(s.rep.length)a.push(`You repeated "${s.rep.join('", "')}" often. Try synonyms.`);
+ if(s.wpm&&s.wpm<90)a.push(`You spoke at about ${s.wpm} words/min. A natural pace is roughly 110–150.`);
+ if(s.wpm&&s.wpm>170)a.push(`You spoke fast (about ${s.wpm} words/min). Slow down so each idea is clear.`);
+ return a.length?a:['Strong practice. Next, work on precise vocabulary and a wider mix of tenses.']}
+function readAcc(ref,said){const a=W(ref),b=W(said);if(!a.length)return null;const dp=Array.from({length:a.length+1},()=>new Array(b.length+1).fill(0));
+ for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
+ const set=new Set(b);return{pct:Math.round(dp[a.length][b.length]/a.length*100),missed:[...new Set(a.filter(x=>!set.has(x)))].slice(0,8)}}
+window.startSpeaking=function(t){
+ const my=++run,ielts=t.exam==='IELTS',turns=[],dead=()=>run!==my||!isOpen(),answers=[],log=[],H=escapeHTML;let sec=0,skipPrep=false,doneNow=null;
+ if(ielts)turns.push({p:-1,kind:'qa',part:'Introduction',q:'Could you tell me your full name, please?',say:`Good day. My name is ${EX}, and I will be your examiner today. Could you tell me your full name, please?`,max:20});
+ else turns.push({p:-1,kind:'hello',part:'Welcome',q:'Your speaking coach will guide each task.',say:`Hello, I am ${EX}, your speaking coach today. I will introduce each task, give you preparation time, and then you will speak.`});
+ (t.prompts||[]).forEach((p,i)=>{const part=p.part||'Question '+(i+1),tm=p.time||'';
+  if(ielts&&/Part 2|Long turn/i.test(part+tm))turns.push({p:i,kind:'long',part,q:p.text,say:`Now, I am going to give you a topic, and I would like you to talk about it for one to two minutes. You have one minute to prepare. ${p.text}`,prep:60,max:120});
+  else if(ielts){const qs=p.text.match(/[^?]+\?|[^?]+$/g)||[p.text];qs.map(x=>x.trim()).filter(Boolean).forEach((q,k)=>turns.push({p:i,kind:'qa',part,q,say:(k?'':/Part 3/i.test(part)?'Now, let us discuss some more general questions related to this topic. ':'Now I would like to ask you some questions. ')+q,max:45,follow:true}))}
+  else{const rd=/Read Aloud/i.test(part),pr=+((/Preparation:?\s*(\d+)/i.exec(tm)||[])[1]||(rd?30:10)),mx=+((/Response:?\s*(?:up to )?(\d+)/i.exec(tm)||[])[1]||40);
+   turns.push({p:i,kind:rd?'read':'pte',part,q:p.text,say:rd?'Please read the text on the screen silently, then read it aloud clearly.':`Next task: ${part}. ${p.text}`,prep:pr,max:mx})}});
+ $('#modalTitle').textContent=t.title;
+ $('#modalBody').innerHTML=`<div class="testbar"><span class="pill">${H(t.exam)} · ${ielts?'Examiner':'Speaking coach'} ${EX}</span><span class="timer" id="exClock">00:00</span></div><div class="qprogress"><span id="exBar" style="width:0%"></span></div>
+ <div class="panel" style="text-align:center;margin-bottom:13px"><div id="exAv" style="width:76px;height:76px;margin:4px auto 8px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:900;font-size:1.5rem;background:linear-gradient(145deg,#315df0,#7657ef);transition:box-shadow .3s">AB</div><b>${EX}</b><div style="font-size:.74rem;color:var(--muted)">${ielts?'IELTS Examiner':'PTE Speaking Coach'}</div><div style="margin-top:12px"><span class="tag" id="exPart"></span></div><div class="question" id="exQ" style="margin-top:10px"></div><div id="exCount" style="font-size:1.7rem;font-weight:900"></div><div id="exStatus" aria-live="polite" style="font-size:.8rem;color:var(--muted)"></div></div>
+ <div class="panel"><div class="testtop"><b>🎙️ Your answer</b><span class="pill">${SR?'Voice':'Type your answer'}</span></div><textarea id="exText" style="min-height:110px" placeholder="${SR?'Your words appear here as you speak.':'Speech recognition is unavailable here: type your answer, then tap Done.'}"></textarea><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn primary" id="exMic">🎤 Microphone: Off</button><button class="btn ghost" id="exDone">✓ I'm done</button><button class="btn ghost" id="exSkip">Skip preparation</button><button class="btn ghost" id="exRep">🔊 Repeat</button><button class="btn ghost" id="exTest">🔈 Test sound</button></div><div style="height:8px;border-radius:6px;background:var(--line);margin-top:10px;overflow:hidden" aria-label="Microphone level"><div id="exLvl" style="height:100%;width:0;background:linear-gradient(90deg,#4474ff,#8464f6)"></div></div></div><p style="font-size:.68rem;color:var(--muted);margin-top:12px">Practice-only feedback, not an official IELTS band or PTE score. Audio is not saved.</p>`;
+ const ui=(m,s)=>{if(dead())return;$('#exStatus').textContent=s;$('#exAv').style.boxShadow=m==='speak'?'0 0 0 10px #4d68ef33':'none'};
+ $('#exSkip').onclick=()=>skipPrep=true;$('#exDone').onclick=()=>doneNow&&doneNow();$('#exTest').onclick=()=>say(`Hello, this is ${EX}. Can you hear me clearly?`);
+ const setMic=()=>{const b=$('#exMic');if(b){b.textContent='🎤 Microphone: '+(stream?'On':'Off');b.className='btn '+(stream?'ghost':'primary')}};
+ async function micOn(){if(stream)return;try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});ac=new(window.AudioContext||window.webkitAudioContext)();an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(stream).connect(an);micBad=false;setMic();onMicReady&&onMicReady()}catch(e){micBad=true;ui('listen','Microphone blocked. Allow it in your browser or phone Settings, or type your answer and tap Done.')}}
+ function micOff(){if(doneNow)doneNow();if(stream)stream.getTracks().forEach(x=>x.stop());stream=null;try{ac&&ac.close()}catch(e){}ac=an=null;setMic()}
+ $('#exMic').onclick=()=>stream?micOff():micOn();
+ const clock=setInterval(()=>{sec++;const e=$('#exClock');if(e)e.textContent=fmt(sec)},1000);speakingClock=clock;openModal();
+async function judge(tr,a){try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),25000),r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json'},signal:ctl.signal,body:JSON.stringify({exam:t.exam,part:tr.part,question:tr.q,text:a.text||'',mime:a.blob?a.blob.type:'',audio:a.blob?await b64(a.blob):''})});clearTimeout(tm);if(!r.ok)return null;return JSON.parse((await r.text()).replace(/```json|```/g,'').trim())}catch(e){return null}}
+ function listen(tr){return new Promise(res=>{const ta=$('#exText');ta.value='';let rec=null,mr=null,chunks=[],done=false,begun=false,first=0,last=0,start=0,base='';const wait=Date.now();
+  const out=()=>res({text:ta.value.trim(),sec:first?Math.max(0,(last-first)/1000):0,blob:chunks.length?new Blob(chunks,{type:(mr&&mr.mimeType)||mt||'audio/webm'}):null});
+  const fin=()=>{if(done)return;done=true;clearInterval(iv);doneNow=null;onMicReady=null;ta.readOnly=false;try{if(rec){rec.onend=null;rec.stop()}}catch(e){}const l=$('#exLvl');if(l)l.style.width='0';if(mr&&mr.state!=='inactive'){mr.onstop=out;try{mr.stop()}catch(e){out()}}else out()};
+  doneNow=fin;
+  const begin=()=>{if(begun||done||!stream)return;begun=true;start=last=Date.now();ui('listen','Your turn. Speak now; I will move on when you pause.');
+   if(window.MediaRecorder&&AI_URL){try{mr=new MediaRecorder(stream,mt?{mimeType:mt}:undefined);mr.ondataavailable=e=>e.data&&e.data.size&&chunks.push(e.data);mr.start(1000)}catch(e){mr=null}}
+   if(SR&&!AI_URL){try{rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=true;rec.onresult=e=>{let s='';for(let i=0;i<e.results.length;i++)s+=e.results[i][0].transcript+' ';ta.value=(base+s).trim()};rec.onerror=e=>{if(e.error==='audio-capture'||e.error==='not-allowed'){rec=null;ta.readOnly=false}};rec.onend=()=>{if(!done&&rec){base=ta.value+' ';try{rec.start()}catch(e){}}};rec.start()}catch(e){rec=null}}
+   ta.readOnly=!!rec};
+  onMicReady=begin;if(stream)begin();else ui('listen',micBad?'Microphone unavailable. Type your answer, then tap Done.':'Tap the microphone button to answer, or type below and tap Done.');
+  const iv=setInterval(()=>{if(dead()){fin();return}
+   if(!begun){if(Date.now()-wait>90000)fin();return}
+   let v=0;if(an){const d=new Uint8Array(an.fftSize);an.getByteTimeDomainData(d);let q=0;for(const x of d)q+=(x-128)*(x-128);v=Math.sqrt(q/d.length)/128;const l=$('#exLvl');if(l)l.style.width=Math.min(100,v*400)+'%'}
+   if(v>.03||(rec&&ta.value&&ta.value!==base.trim()&&Date.now()-last>1500&&v>.015)){last=Date.now();first=first||last}
+   const el=(Date.now()-start)/1000,sil=Date.now()-last;
+   if(!stream)fin();else if(el>tr.max||(first&&sil>(tr.kind==='long'?5000:3200)))fin();else if(!first&&el>25)fin();else if(!first&&el>12)$('#exStatus').textContent='Take your time. Tap Done to skip.'},100)})}
+ async function answer(tr){const a=await listen(tr);if(dead())return null;
+  if(AI_URL&&(a.blob||a.text)){ui('think',`${EX} is considering your answer…`);const j=await judge(tr,a);if(dead())return null;if(j){a.ai=j;if(j.transcript&&a.blob)a.text=String(j.transcript);$('#exText').value=a.text}}
+  delete a.blob;log.push({...tr,...a});if(tr.p>=0)answers[tr.p]=((answers[tr.p]||'')+' '+a.text).trim();return a}
+  (async()=>{await sleep(350);let n=0;
+  for(const tr of turns){if(dead())return;n++;$('#exBar').style.width=Math.round(n/turns.length*100)+'%';$('#exPart').textContent=tr.part;$('#exQ').textContent=tr.q;$('#exCount').textContent='';$('#exText').value='';$('#exRep').onclick=()=>say(tr.say);
+   ui('speak',`${EX} is speaking…`);await say(tr.say);if(dead())return;if(tr.kind==='hello')continue;
+   if(tr.prep){skipPrep=false;for(let s=tr.prep;s>0&&!skipPrep&&!dead();s--){$('#exCount').textContent=fmt(s);ui('prep','Preparation time. Plan your answer.');await sleep(1000)}if(dead())return;$('#exCount').textContent='';await say(tr.kind==='read'?'Please begin.':'Please start speaking now.');if(dead())return}
+   let a=await answer(tr);if(!a)return;
+   if(tr.follow&&a.text){const fu=a.ai?(a.ai.followUp||''):(W(a.text).length<14?pick(['Could you tell me a little more about that?','Can you give me an example?','Why do you think that is?']):'');if(fu){ui('speak',`${EX} is speaking…`);$('#exQ').textContent=fu;await say(fu);if(dead())return;if(!await answer({...tr,q:fu,follow:false}))return}}
+   if(!a.text){ui('speak',`${EX} is speaking…`);await say('No problem, let us move on.')}else if(tr!==turns[turns.length-1]){ui('speak',`${EX} is speaking…`);await say(tr.kind==='long'?'Thank you. That is the end of this part.':pick(['Thank you.','I see, thank you.','Right, okay.','Thank you, that is helpful.']))}
+   if(dead())return}
+  clearInterval(clock);micOff();finish()})();
+ async function finish(){
+  const sc=log.filter(x=>x.p>=0&&x.kind!=='read'),ai=sc.filter(x=>x.ai),reads=log.filter(x=>x.kind==='read').map(x=>({x,r:readAcc(x.q,x.text)})).filter(o=>o.r),all=answers.join(' ').trim(),
+  mean=k=>{let w=0,q=0;ai.forEach(x=>{const n=Math.max(5,W(x.text).length),v=+x.ai[k];if(v>0){w+=n;q+=v*n}});return w?Math.round(q/w*2)/2:null},
+  est=ai.length?null:estimate(sc);let c,fb,good=[],errs=[];
+  if(ai.length){const f=mean('fluency')||1,l=mean('lexical')||1,g=mean('grammar')||1,p=mean('pronunciation'),vals=[f,l,g].concat(p?[p]:[]);
+   c={band:Math.round(vals.reduce((x,y)=>x+y,0)/vals.length*2)/2,fluency:f,vocab:l,grammar:g,pronunciation:p,totalWords:W(all).length};
+   fb=[...new Set(ai.flatMap(x=>x.ai.tips||[]))].slice(0,4);good=[...new Set(ai.flatMap(x=>x.ai.strengths||[]))].slice(0,3);errs=ai.flatMap(x=>x.ai.errors||[]).filter(e=>e&&e.said&&e.better).slice(0,6)}
+  else{fb=est?tips(est):[all?'Only a read-aloud task was recorded.':'No answer was captured. Check microphone permission, or type your answers.'];c=est?{band:est.band,fluency:est.fl,vocab:est.lx,grammar:est.gr,totalWords:est.n}:{band:null,fluency:1,vocab:1,grammar:1,totalWords:0}}
+  reads.forEach(o=>fb.unshift(`Read Aloud accuracy: ${o.r.pct}%${o.r.missed.length?'. Missing or misread: '+o.r.missed.join(', '):''}.`));
+  const r={id:Date.now(),exam:t.exam,skill:'Speaking',title:t.title,mode:'speaking-ai-estimate',date:new Date().toISOString(),band:c.band,answers:(t.prompts||[]).map((p,i)=>answers[i]||''),feedback:fb.join(' '),criteria:c},box=(v,l)=>`<div class="resultstat"><b>${v==null?'—':v.toFixed(1)}</b><small>${l}</small></div>`;
+  state.results.unshift(r);recordActivity();save();renderDash();
+  $('#modalTitle').textContent='Examiner feedback';
+  $('#modalBody').innerHTML=`<div style="text-align:center;padding:8px"><div class="eyebrow">${EX} · ${ai.length?'AI-assisted estimate':'practice estimate'}</div><div class="resultScore">${c.band==null?'—':c.band.toFixed(1)}<span style="font-size:1.1rem"> / 9</span></div><p style="color:var(--muted);font-size:.8rem">${ai.length?'Based on your recorded voice. Not an official score; AI can be wrong.':'Text-based estimate, not an official score. Pronunciation is not assessed in this mode.'}</p></div><div class="grid resultgrid" style="grid-template-columns:repeat(2,1fr)">${box(c.fluency,'Fluency &amp; coherence')}${box(c.vocab,'Vocabulary')}${box(c.grammar,'Grammar range')}${ai.length?box(c.pronunciation,'Pronunciation'):''}</div>${good.length?`<div class="panel" style="margin-top:12px"><h3>What went well</h3>${good.map(x=>`<p style="font-size:.82rem;margin:0 0 6px">✓ ${H(x)}</p>`).join('')}</div>`:''}${errs.length?`<div class="panel" style="margin-top:12px"><h3>Corrections</h3>${errs.map(e=>`<p style="font-size:.82rem;margin:0 0 9px">✗ ${H(e.said)}<br>✓ <b>${H(e.better)}</b>${e.why?`<br><small style="color:var(--muted)">${H(e.why)}</small>`:''}</p>`).join('')}</div>`:''}<div class="panel" style="margin-top:12px"><h3>${EX}'s comments</h3>${fb.map(x=>`<p style="font-size:.82rem;margin:0 0 8px">• ${H(x)}</p>`).join('')}</div><h3 style="margin-top:18px">Your answers</h3>${(t.prompts||[]).map((p,i)=>`<div class="reviewitem"><b>${H(p.part||'Question '+(i+1))}</b><p>${H(answers[i]||'No answer recorded.')}</p></div>`).join('')}<div class="qfoot"><button class="btn ghost" id="redoSpeaking">Try again</button><button class="btn primary" id="finishSpeaking">Save &amp; close</button></div>`;
+  $('#redoSpeaking').onclick=()=>{closeModal();startSpeaking(t)};$('#finishSpeaking').onclick=()=>{closeModal();nav('review')};
+  await say(c.band!=null?`Thank you. That is the end of the speaking test. Your practice estimate is band ${c.band.toFixed(1)}. Please read my comments on the screen.`:'Thank you. That is the end of the speaking test.')}
+};
+})();
+</script>
+<script src="./bank.js"></script></body></html>
