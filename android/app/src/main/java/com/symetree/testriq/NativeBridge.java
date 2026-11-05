@@ -95,6 +95,12 @@ public class NativeBridge {
         }
     }
 
+    /** The page has painted its first screen: the opening screen can fade into it. */
+    @JavascriptInterface
+    public void appReady() {
+        act.runOnUiThread(act::onWebReady);
+    }
+
     @JavascriptInterface
     public void setTheme(boolean dark) {
         act.runOnUiThread(() -> act.applySystemBarAppearance(dark));

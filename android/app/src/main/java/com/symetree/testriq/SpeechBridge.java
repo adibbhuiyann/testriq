@@ -26,7 +26,7 @@ import java.util.Set;
  * window.TestriqSpeech — the examiner's voice (text-to-speech) and the candidate's
  * microphone (speech recognition) for the web app.
  *
- * Voice: "adib" = Adib Bhuiyan (male), "jishad" = Jishad Mozmder (female).
+ * Voice: "sajid" = Sajid Shahriar (male), "jishad" = Jishad Mozmder (female).
  * Events go back to the page through window.testriqSpeechEvent(id, type, start, end)
  * and window.testriqListenEvent(type, text, confidence).
  */
@@ -191,7 +191,7 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
     @JavascriptInterface
     public void speak(String text, String id, double volume, String examinerId) {
         final Job job = new Job(text == null ? "" : text, id == null ? "0" : id,
-                (float) Math.max(0, Math.min(1, volume)), examinerId == null ? "adib" : examinerId);
+                (float) Math.max(0, Math.min(1, volume)), examinerId == null ? "sajid" : examinerId);
         main.post(() -> {
             if (ttsFailed) {
                 emit(job.id, "error", 0, 0);
@@ -207,12 +207,12 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
 
     @JavascriptInterface
     public void speak(String text, String id, double volume) {
-        speak(text, id, volume, "adib");
+        speak(text, id, volume, "sajid");
     }
 
     @JavascriptInterface
     public void speak(String text, String id) {
-        speak(text, id, 1.0, "adib");
+        speak(text, id, 1.0, "sajid");
     }
 
     private List<String> chunk(String text, Job job) {

@@ -1,6 +1,6 @@
 /* =====================================================================
    Testriq AI examiner — Cloudflare Worker (free tier friendly)
-   Examiners: Adib Bhuiyan (male) and Jishad Mozmder (female).
+   Examiners: Sajid Shahriar (male) and Jishad Mozmder (female).
 
    What it does
    - followup : the next examiner question (IELTS Part 1 / Part 3 probing,
@@ -23,7 +23,7 @@
 const DEFAULT_ORIGINS = ['https://appassets.androidplatform.net', 'https://adibbhuiyann.github.io'];
 const SCORING_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.1-flash-lite'];
 const FAST_MODELS = ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
-const EXAMINERS = { adib: 'Adib Bhuiyan', jishad: 'Jishad Mozmder' };
+const EXAMINERS = { sajid: 'Sajid Shahriar', adib: 'Sajid Shahriar', jishad: 'Jishad Mozmder' };
 
 /* ---------------------------------------------------------------- rubric */
 const SPEAKING_DESCRIPTORS = `IELTS SPEAKING — the four criteria, scored as whole bands 1–9 (summarised in plain words):
@@ -159,16 +159,20 @@ function parseJSON(text) {
 
 /* ---------------------------------------------------------------- follow-up */
 async function followup(b, env) {
-  const examiner = EXAMINERS[b.examinerId] || EXAMINERS.adib;
+  const examiner = EXAMINERS[b.examinerId] || EXAMINERS.sajid;
   const turns = sanitizeTurns(b.messages);
   const part = str(b.part, 80) || 'Part 1';
   const lastAnswer = [...turns].reverse().find((t) => t.role === 'Candidate')?.text || '';
   const asked = turns.filter((t) => t.role === 'Examiner').map((t) => t.text);
   const isP3 = /part 3|discussion/i.test(part);
   const isP2 = /part 2|rounding/i.test(part);
+  const memory = arr(b.memory, 20).map((m) => str(m, 160)).filter(Boolean);
+  const role = b.role === 'student' ? 'a student' : b.role === 'worker' ? 'working (not a student)' : 'unknown';
   const prompt = `You are ${examiner}, a real, experienced IELTS Speaking examiner conducting a live test. Stay in role.
 Current section: ${part}. The scripted question was: "${str(b.question, 400)}".
-Candidate's name or nickname: ${str(b.nickname, 40) || 'unknown'}.
+Candidate's name or nickname: ${str(b.nickname, 40) || 'unknown'}. Work or study: ${role}.
+What you remember about the candidate from earlier in this test:
+${memory.length ? memory.map((m) => `- ${m}`).join('\n') : '- nothing yet'}
 
 Conversation so far (most recent last):
 ${turns.map((t) => `${t.role}: ${t.text}`).join('\n')}
@@ -185,15 +189,19 @@ ${
 - Pick up a specific detail they mentioned (a place, a person, a preference) and ask about it.
 - Sometimes (about 1 in 3) gently CHALLENGE or contradict their answer to test flexibility: "You said you prefer X — but many people find Y better. Why do you disagree?" / "Really? I'd have thought ... Why is that?"`
 }
+- You REMEMBER everything said in this test. When it fits naturally (about 1 time in 3), link your question to something they said EARLIER: "Earlier you mentioned that you ... — ..." Never invent things they did not say.
+- If the LAST answer contradicts something they said earlier, politely point it out and ask them to explain: "A moment ago you said ..., but now you say ... — which is it?"
+- If the LAST answer did not actually answer the question (for example, they did not choose between the two options, or went off topic), politely bring them back to the question.
 - If the answer was very short or vague, ask them to explain why or to give an example.
 - If they said they don't know, offer an easier angle.
+- Keep work/study questions consistent with what they do (do not ask a student about their job).
 - Never repeat or rephrase a question already asked: ${JSON.stringify(asked.slice(-8))}
-- Never give feedback, praise, corrections or band scores. No greetings. Natural spoken British English, at most 28 words.
-Return JSON: {"question":"...","kind":"challenge"|"probe"|"extend"}`;
+- Never give feedback, praise, corrections or band scores. No greetings. Natural spoken British English, at most 32 words.
+Return JSON: {"question":"...","kind":"challenge"|"probe"|"extend"|"recall"|"clarify"}`;
   const { data, model } = await gemini(env, [{ text: prompt }], { fast: true, temperature: 0.8, maxTokens: 300, timeout: 12000 });
   const q = str(data.question, 300).replace(/^["“]|["”]$/g, '');
   if (!q || q.split(/\s+/).length < 3) throw Object.assign(new Error('empty question'), { status: 502 });
-  return { question: q, kind: ['challenge', 'probe', 'extend'].includes(data.kind) ? data.kind : 'probe', model };
+  return { question: q, kind: ['challenge', 'probe', 'extend', 'recall', 'clarify'].includes(data.kind) ? data.kind : 'probe', model };
 }
 
 /* ---------------------------------------------------------------- speaking: shape the answer */
@@ -264,7 +272,7 @@ async function judge(b, env) {
   const spoken = answers.filter((a) => a.answer && a.answer !== '(No answer)');
   const typed = !!b.typed;
   const m = b.metrics || {};
-  const prompt = `You are ${EXAMINERS[b.examinerId] || EXAMINERS.adib}, a certified IELTS Speaking examiner. Assess this candidate's complete speaking test.
+  const prompt = `You are ${EXAMINERS[b.examinerId] || EXAMINERS.sajid}, a certified IELTS Speaking examiner. Assess this candidate's complete speaking test.
 
 ${SPEAKING_DESCRIPTORS}
 
@@ -305,7 +313,7 @@ async function assessAudio(form, env) {
     parts.push({ text: `Recording ${i + 1} — question: ${str(meta[i]?.question, 400) || 'speaking task'}` });
     parts.push({ inline_data: { mime_type: (f.type || 'audio/wav').split(';')[0], data: toBase64(buf) } });
   }
-  const prompt = `You are ${EXAMINERS[form.get('examinerId')] || EXAMINERS.adib}, a certified IELTS Speaking examiner. Listen to the candidate's recordings and assess them.
+  const prompt = `You are ${EXAMINERS[form.get('examinerId')] || EXAMINERS.sajid}, a certified IELTS Speaking examiner. Listen to the candidate's recordings and assess them.
 Transcribe what you hear, then judge Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation FROM THE AUDIO (pronunciation must be judged from what you hear: sounds, word stress, rhythm, intonation, chunking).
 
 ${SPEAKING_DESCRIPTORS}

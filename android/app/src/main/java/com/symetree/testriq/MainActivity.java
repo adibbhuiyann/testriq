@@ -11,6 +11,9 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -73,6 +76,18 @@ public class MainActivity extends Activity {
     volatile boolean resumedNow;
     private Object backCallback;
 
+    // Opening screen: shown natively on the first frame, kept for at least SPLASH_MIN_MS,
+    // and faded out once the page reports that its first screen is painted.
+    private static final long SPLASH_MIN_MS = 2400;
+    private static final long SPLASH_MAX_MS = 10000;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private SplashOverlay splash;
+    private boolean splashCovering;
+    private boolean webShown;
+    private long splashShownAt;
+    private Boolean barsAfterSplash;
+    private final Runnable hideSplashTask = this::hideSplash;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -87,9 +102,10 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
         applySystemBarAppearance(true);
-        // the page decides the real colours once its opening screen has finished
+        // the page decides the real colours once the opening screen has finished
         root.setBackgroundColor(SPLASH_BG);
         web.setBackgroundColor(SPLASH_BG);
+        showSplash();
 
         configureWebView();
         speech = new SpeechBridge(this);
@@ -123,6 +139,11 @@ public class MainActivity extends Activity {
     }
 
     void applySystemBarAppearance(boolean dark) {
+        if (splashCovering) {
+            // keep light status-bar icons on the dark opening screen; apply when it fades
+            barsAfterSplash = dark;
+            return;
+        }
         try {
             applyBars(dark);
         } catch (RuntimeException e) {
@@ -160,6 +181,46 @@ public class MainActivity extends Activity {
             }
             decor.setSystemUiVisibility(flags);
         }
+    }
+
+    // ---------------------------------------------------------------- opening screen
+
+    private void showSplash() {
+        splash = new SplashOverlay(this);
+        root.addView(splash, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        splashCovering = true;
+        splashShownAt = SystemClock.uptimeMillis();
+        splash.start();
+        ui.postDelayed(hideSplashTask, SPLASH_MAX_MS);
+    }
+
+    /** Called when the page has painted its first screen (or as a fallback after loading). */
+    void onWebReady() {
+        if (webShown) return;
+        webShown = true;
+        ui.removeCallbacks(hideSplashTask);
+        long elapsed = SystemClock.uptimeMillis() - splashShownAt;
+        ui.postDelayed(hideSplashTask, Math.max(0, SPLASH_MIN_MS - elapsed));
+    }
+
+    private void hideSplash() {
+        ui.removeCallbacks(hideSplashTask);
+        final SplashOverlay s = splash;
+        if (s == null) return;
+        splash = null;
+        s.finish(() -> {
+            if (!splashCovering) return;
+            splashCovering = false;
+            applySystemBarAppearance(barsAfterSplash != null ? barsAfterSplash : darkTheme);
+        }, () -> {
+            if (splashCovering) {
+                splashCovering = false;
+                applySystemBarAppearance(barsAfterSplash != null ? barsAfterSplash : darkTheme);
+            }
+            if (root != null) root.removeView(s);
+            js("window.TQSplashDone&&TQSplashDone()");
+        });
     }
 
     void setKeepAwake(boolean on) {
@@ -283,6 +344,8 @@ public class MainActivity extends Activity {
             pageReady = true;
             pushInsets();
             deliverAuth();
+            // normally the page says when it is ready; this is only a safety net
+            ui.postDelayed(MainActivity.this::onWebReady, 1500);
         }
 
         @Override
@@ -513,6 +576,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        ui.removeCallbacksAndMessages(null);
         if (speech != null) speech.shutdown();
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((OnBackInvokedCallback) backCallback);
