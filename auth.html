@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1730">
+<meta name="robots" content="noindex">
+<title>Sign in · Testriq</title>
+<style>
+  :root{--ink:#edf2ff;--muted:#a9b6d6;--card:#151d31;--line:#2a3555}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:var(--ink);
+    background:radial-gradient(circle at 15% 10%,#3355d955,transparent 45%),radial-gradient(circle at 90% 85%,#7657ef44,transparent 45%),#0f1730}
+  .card{width:min(420px,100%);background:var(--card);border:1px solid var(--line);border-radius:26px;padding:30px 26px;box-shadow:0 30px 80px #0007;text-align:center;animation:in .5s cubic-bezier(.2,.8,.2,1)}
+  @keyframes in{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+  img{width:72px;height:72px;border-radius:20px;box-shadow:0 12px 30px #315df055}
+  h1{font-size:1.45rem;letter-spacing:-.03em;margin:18px 0 6px}
+  p{color:var(--muted);margin:0 0 22px;font-size:.92rem}
+  button,a.btn{width:100%;border:0;border-radius:14px;padding:14px 18px;font:inherit;font-weight:750;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;transition:transform .15s,box-shadow .2s}
+  button:active,a.btn:active{transform:scale(.97)}
+  .google{background:#fff;color:#1f2a44}
+  .facebook{background:#1877f2;color:#fff}
+  .ghost{background:transparent;color:var(--ink);border:1px solid var(--line);margin-top:12px}
+  .status{min-height:24px;margin-top:16px;font-size:.88rem;color:var(--muted)}
+  .error{color:#ff9aa8}
+  .spinner{width:20px;height:20px;border-radius:50%;border:3px solid #ffffff40;border-top-color:#fff;animation:spin .8s linear infinite;display:inline-block;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  small{display:block;margin-top:22px;color:#7d8aad;font-size:.75rem}
+  [hidden]{display:none!important}
+</style>
+<script src="config.js"></script>
+</head>
+<body>
+<main class="card" id="card">
+  <img src="icon.svg" alt="Testriq">
+  <h1 id="title">Sign in to Testriq</h1>
+  <p id="lead">Continue to keep your progress safe in your account.</p>
+  <button id="go" class="google" hidden></button>
+  <a id="back" class="btn google" hidden>Return to Testriq</a>
+  <button id="cancel" class="ghost">Cancel</button>
+  <div class="status" id="status" role="status"></div>
+  <small>Testriq · by SYMETREE</small>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, FacebookAuthProvider, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const $ = (id) => document.getElementById(id);
+const cfg = window.TESTRIQ_CONFIG || {};
+const q = new URLSearchParams(location.search);
+const saved = JSON.parse(sessionStorage.getItem("tq_auth_req") || "null");
+const req = q.get("provider") ? { provider: q.get("provider"), state: q.get("state") || "", mode: q.get("mode") || "web", ret: q.get("return") || "" } : saved;
+const status = (text, bad) => { $("status").innerHTML = text; $("status").className = "status" + (bad ? " error" : ""); };
+const safeReturn = (u) => /^https:\/\/adibbhuiyann\.github\.io\//.test(u) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u) ? u : "https://adibbhuiyann.github.io/testriq/";
+
+function finish(params) {
+  if (req.mode === "app") {
+    const intent = "intent://auth?" + params + "#Intent;scheme=testriq;package=com.symetree.testriq;end";
+    $("back").href = intent;
+    $("back").hidden = false;
+    $("go").hidden = true;
+    $("cancel").hidden = true;
+    $("title").textContent = "You're signed in";
+    $("lead").textContent = "Tap below if Testriq doesn't open by itself.";
+    status("");
+    location.href = intent;
+  } else {
+    location.replace(safeReturn(req.ret) + "#tqauth=" + encodeURIComponent(params));
+  }
+}
+function fail(message) {
+  const params = new URLSearchParams({ state: req?.state || "", error: message });
+  status(message, true);
+  $("go").hidden = false;
+}
+async function done(user, providerId) {
+  status('<span class="spinner"></span>&nbsp; Signing you in…');
+  const idToken = await user.getIdToken();
+  const params = new URLSearchParams({
+    state: req.state, uid: user.uid, email: user.email || "", name: user.displayName || "",
+    photo: user.photoURL || "", provider: providerId, idToken, refreshToken: user.refreshToken, expiresIn: "3600",
+  });
+  sessionStorage.removeItem("tq_auth_req");
+  finish(params.toString());
+}
+const messages = {
+  "auth/popup-closed-by-user": "The sign-in window was closed. Try again when you're ready.",
+  "auth/cancelled-popup-request": "Sign-in was cancelled.",
+  "auth/account-exists-with-different-credential": "This email already uses another sign-in method. Please use that one.",
+  "auth/unauthorized-domain": "This website isn't authorised in Firebase yet (Authentication → Settings → Authorised domains).",
+  "auth/operation-not-allowed": "This sign-in method isn't enabled in Firebase yet.",
+  "auth/network-request-failed": "No internet connection. Check your connection and try again.",
+};
+
+$("cancel").onclick = () => {
+  sessionStorage.removeItem("tq_auth_req");
+  if (req?.mode === "app") location.href = "intent://auth?" + new URLSearchParams({ state: req.state, error: "cancelled" }) + "#Intent;scheme=testriq;package=com.symetree.testriq;end";
+  else location.replace(safeReturn(req?.ret || ""));
+};
+
+if (!req || !["google", "facebook"].includes(req.provider)) {
+  status("This sign-in link is incomplete. Please start again from the Testriq app.", true);
+} else if (!cfg.firebase || !cfg.firebase.apiKey) {
+  status("Sign-in isn't set up yet. Please use email or guest mode in the app.", true);
+} else {
+  sessionStorage.setItem("tq_auth_req", JSON.stringify(req));
+  const app = initializeApp({ apiKey: cfg.firebase.apiKey, authDomain: cfg.firebase.authDomain, projectId: cfg.firebase.projectId, appId: cfg.firebase.appId });
+  const auth = getAuth(app);
+  await setPersistence(auth, browserLocalPersistence).catch(() => {});
+  const google = req.provider === "google";
+  const provider = google ? new GoogleAuthProvider() : new FacebookAuthProvider();
+  if (google) provider.setCustomParameters({ prompt: "select_account" });
+  else { provider.addScope("email"); provider.addScope("public_profile"); }
+  const go = $("go");
+  go.className = google ? "google" : "facebook";
+  go.textContent = google ? "Continue with Google" : "Continue with Facebook";
+  go.hidden = false;
+  $("lead").textContent = google ? "Choose your Google account to continue." : "Log in with Facebook to continue.";
+  try {
+    const r = await getRedirectResult(auth);
+    if (r && r.user) await done(r.user, req.provider + ".com");
+  } catch (e) {
+    fail(messages[e.code] || "Sign-in didn't complete. Please try again.");
+  }
+  go.onclick = async () => {
+    go.hidden = true;
+    status('<span class="spinner"></span>&nbsp; Opening ' + (google ? "Google" : "Facebook") + "…");
+    try {
+      const r = await signInWithPopup(auth, provider);
+      await done(r.user, req.provider + ".com");
+    } catch (e) {
+      if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      fail(messages[e.code] || "Sign-in didn't complete (" + (e.code || "error") + "). Please try again.");
+    }
+  };
+}
+</script>
+</body>
+</html>

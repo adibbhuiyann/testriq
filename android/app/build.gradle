@@ -1,0 +1,88 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ---- Version -------------------------------------------------------------
+// VERSION_NAME comes from android/version.properties.
+// VERSION_CODE comes from the VERSION_CODE environment variable when it is set
+// (GitHub Actions sets it automatically), otherwise from version.properties.
+def versionProps = new Properties()
+rootProject.file('version.properties').withInputStream { versionProps.load(it) }
+def ciVersionCode = System.getenv('VERSION_CODE')
+def appVersionCode = (ciVersionCode ?: versionProps.getProperty('VERSION_CODE', '1')).toInteger()
+def appVersionName = versionProps.getProperty('VERSION_NAME', '1.0.0')
+
+// ---- Signing -------------------------------------------------------------
+// Release builds are signed with the upload key when these environment
+// variables are present (GitHub Actions provides them from repository secrets).
+def keystorePath = System.getenv('TESTRIQ_KEYSTORE')
+def hasReleaseKey = keystorePath != null && new File(keystorePath).exists()
+
+android {
+    namespace 'com.symetree.testriq'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.symetree.testriq'
+        minSdk 24
+        targetSdk 36
+        versionCode appVersionCode
+        versionName appVersionName
+        resValue 'string', 'app_version', appVersionName
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('TESTRIQ_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('TESTRIQ_KEY_ALIAS') ?: 'upload'
+                keyPassword System.getenv('TESTRIQ_KEY_PASSWORD') ?: System.getenv('TESTRIQ_KEYSTORE_PASSWORD')
+                storeType 'pkcs12'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            versionNameSuffix '-debug'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+}
+
+// ---- Web app ------------------------------------------------------------
+// The app screens are the same files that power the website (repository root).
+// They are copied into the APK/AAB on every build, so edit them in one place.
+def webRoot = rootProject.file('..')
+tasks.register('copyWebAssets', Copy) {
+    from(webRoot) {
+        include 'index.html', 'bank.js', 'config.js', 'manifest.json', 'icon.svg', 'logo.svg', 'privacy.html'
+    }
+    into file('src/main/assets/www')
+}
+tasks.named('preBuild') {
+    dependsOn 'copyWebAssets'
+}

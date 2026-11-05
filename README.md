@@ -1,30 +1,33 @@
-# Testriq — IELTS, SAT & PTE Practice
+# Testriq — IELTS, SAT & PTE practice (website + Android app)
 
-Testriq is a responsive, installable Progressive Web App for original exam-practice activities. It is designed to be easy to host on GitHub Pages.
+Testriq is an exam-practice app with a live AI speaking examiner, AI writing marking, IELTS daily goals and a weekly band report. The same app runs as:
 
-## Included
-- IELTS Reading and Listening mock-style mini-tests, Speaking interview prompts, Writing practice, grammar and academic vocabulary.
-- Additional generated practice sets from `bank.js`, including 16 IELTS speaking topics, original reading passages, listening scripts, grammar/vocabulary and SAT/PTE practice.
-- Voice-guided speaking practice: the app reads questions aloud using browser text-to-speech and can transcribe answers using the browser's Web Speech API where supported.
-- A clearly labelled, heuristic speaking practice estimate based on transcript text. This is **not an official IELTS band score and is not a validated AI assessment**. It cannot reliably evaluate pronunciation or intonation. A genuine AI assessment requires a secure backend and a speech/LLM provider; never put private API keys in GitHub Pages client-side code.
-- Timed multiple-choice practice, explanations, results history, local writing drafts, progress, theme/accessibility settings and data export.
-- Custom Testriq logo (`logo.svg` / `icon.svg`), PWA manifest and service worker.
+- **Website**: GitHub Pages serves `index.html` from this repository.
+- **Android app**: the `android/` project wraps the same files in a native app and adds a male/female examiner voice, speech recognition, Google/Facebook sign-in, reminders and haptics. It's built automatically into a Google Play bundle (`.aab`).
 
-## Run locally
-Use a local web server (recommended), or open `index.html` for most non-microphone practice. The service worker and microphone permissions require HTTPS or localhost. Microphone support varies by browser; Chrome on Android is a good starting point. Grant microphone permission when prompted.
+**Start here → [SETUP.md](SETUP.md)** covers the signing secret, the AI examiner, accounts, publishing on Google Play and updating.
 
-## Publish on GitHub Pages
-1. Create a public repository, for example `testriq`.
-2. Upload **all files** in this folder to the repository root: `index.html`, `bank.js`, `manifest.json`, `sw.js`, `icon.svg`, `logo.svg`, and `README.md`.
-3. In the repository, open **Settings → Pages**.
-4. Choose **Deploy from a branch**, select `main` and `/ (root)`, then save.
-5. Wait for deployment and open the HTTPS URL. Refresh once after the first load so the updated service worker can install.
-6. On Android Chrome, open the site menu and choose **Install app** or **Add to Home screen**.
+## What's where
 
-Keep `bank.js` alongside `index.html`; the app loads the extra question bank from it. The service worker caches both files for offline app-shell use. Speech recognition may require an internet connection even when the rest of the app works offline.
+| Path | What it is |
+| --- | --- |
+| `index.html` | The whole app: courses, tests, live speaking examiner, writing, welcome/sign-in, goals, settings |
+| `config.js` | **Your settings**: the AI examiner address, Firebase keys and links. Edit this, not the code. |
+| `worker.js` | The AI examiner (Cloudflare Worker using Google Gemini): follow-up questions, speaking/writing band scores, weekly report |
+| `auth.html` | Google / Facebook sign-in page (opened by the app in a secure browser tab) |
+| `privacy.html` | Privacy policy and account-deletion page (required by Google Play) |
+| `android/` | Native Android project (Java, no extra libraries). `android/version.properties` holds the version name. |
+| `.github/workflows/android.yml` | Builds the signed `.aab` and `.apk` and publishes them under **Releases** |
+| `store/` | Play Store icon, feature graphic and phone screenshots |
 
-## Scoring and privacy
-Practice attempts, settings and drafts are saved in browser local storage on that device. There is no account, cloud sync or server-side AI in this release. Browser speech recognition may send audio to the browser vendor's recognition service according to its settings and terms. The app does not store raw audio. The speaking estimate uses text-length and vocabulary-diversity heuristics only, so use it for practice feedback—not admissions, visa, or official score decisions.
+## The examiners
 
-## Important
-All included practice content is original and is not official IELTS, British Council, IDP, Cambridge, College Board or Pearson material. Testriq is independent and is not affiliated with those organisations. IELTS Speaking prompts are organised in a mock interview style; these are mini-mocks rather than a complete official-length exam.
+- **Adib Bhuiyan** speaks with a male voice; **Jishad Mozmder** with a female voice. The Android app picks matching voices from the phone's text-to-speech engine.
+- In Part 1 and Part 3 the examiner asks follow-up questions about what you actually said, and sometimes challenges your answer, as in a real test.
+- At the end, the AI examiner marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, an on-device estimate is used.
+
+## Notes
+
+All practice content is original and is not official IELTS, British Council, IDP, Cambridge, College Board or Pearson material. Scores are practice estimates, not official results.
+
+Designed and developed by Md Sajid Shahriar Bhuiyan · SYMETREE.
