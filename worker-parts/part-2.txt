@@ -1,0 +1,162 @@
+// ===== Testriq worker · PART 2 of 4 — paste this right after part 1 =====
+async function gemini(env, parts, { fast = false, temperature = 0.3, maxTokens = 4096, timeout = 55000 } = {}) {
+  if (!env.GEMINI_KEY) throw Object.assign(new Error('GEMINI_KEY is not set on the Worker'), { status: 503 });
+  const preferred = fast ? env.FAST_MODEL : env.MODEL;
+  const models = [...new Set([preferred, ...(fast ? FAST_MODELS : SCORING_MODELS)].filter(Boolean))];
+  let lastError = 'no model answered';
+  const started = Date.now();
+  for (const model of models) {
+    const left = timeout - (Date.now() - started);
+    if (left < 2500) break;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), left);
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_KEY },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens: maxTokens },
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        lastError = `${model}: ${r.status} ${body?.error?.message || ''}`.slice(0, 300);
+        continue; // 404 unknown model, 429 quota, 5xx busy → try the next model
+      }
+      const text = (body.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+      const data = parseJSON(text);
+      if (data) return { data, model };
+      lastError = `${model}: unreadable answer`;
+    } catch (e) {
+      lastError = `${model}: ${e.name === 'AbortError' ? 'timed out' : e.message}`;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw Object.assign(new Error(lastError), { status: 502 });
+}
+
+function parseJSON(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {}
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m)
+    try {
+      return JSON.parse(m[0]);
+    } catch {}
+  return null;
+}
+
+/* ---------------------------------------------------------------- follow-up */
+async function followup(b, env) {
+  const examiner = EXAMINERS[b.examinerId] || EXAMINERS.sajid;
+  const turns = sanitizeTurns(b.messages);
+  const part = str(b.part, 80) || 'Part 1';
+  const lastAnswer = [...turns].reverse().find((t) => t.role === 'Candidate')?.text || '';
+  const asked = turns.filter((t) => t.role === 'Examiner').map((t) => t.text);
+  const isP3 = /part 3|discussion/i.test(part);
+  const isP2 = /part 2|rounding/i.test(part);
+  const memory = arr(b.memory, 20).map((m) => str(m, 160)).filter(Boolean);
+  const role = b.role === 'student' ? 'a student' : b.role === 'worker' ? 'working (not a student)' : 'unknown';
+  const prompt = `You are ${examiner}, a real, experienced IELTS Speaking examiner conducting a live test. Stay in role.
+Current section: ${part}. The scripted question was: "${str(b.question, 400)}".
+Candidate's name or nickname: ${str(b.nickname, 40) || 'unknown'}. Work or study: ${role}.
+What you remember about the candidate from earlier in this test:
+${memory.length ? memory.map((m) => `- ${m}`).join('\n') : '- nothing yet'}
+
+Conversation so far (most recent last):
+${turns.map((t) => `${t.role}: ${t.text}`).join('\n')}
+
+Write the ONE next follow-up question to ask about the candidate's LAST answer ("${lastAnswer.slice(0, 600)}").
+How a real examiner does this:
+${
+  isP3
+    ? `- Part 3 is an abstract discussion. Push the candidate's reasoning: challenge their view, play devil's advocate, ask "why", ask them to compare, speculate or evaluate.
+- About half the time, politely CONTRADICT what they said: "But some people would argue the opposite — that ... What would you say to them?" / "Isn't it also true that ...?"`
+    : isP2
+      ? `- This is the rounding-off question after the long turn: one brief, simple question connected with their talk.`
+      : `- Part 1 is a friendly interview about familiar topics. Go gradually deeper than the scripted question.
+- Pick up a specific detail they mentioned (a place, a person, a preference) and ask about it.
+- Sometimes (about 1 in 3) gently CHALLENGE or contradict their answer to test flexibility: "You said you prefer X — but many people find Y better. Why do you disagree?" / "Really? I'd have thought ... Why is that?"`
+}
+- You REMEMBER everything said in this test. When it fits naturally (about 1 time in 3), link your question to something they said EARLIER: "Earlier you mentioned that you ... — ..." Never invent things they did not say.
+- If the LAST answer contradicts something they said earlier, politely point it out and ask them to explain: "A moment ago you said ..., but now you say ... — which is it?"
+- If the LAST answer did not actually answer the question (for example, they did not choose between the two options, or went off topic), politely bring them back to the question.
+- If the answer was very short or vague, ask them to explain why or to give an example.
+- If they said they don't know, offer an easier angle.
+- Keep work/study questions consistent with what they do (do not ask a student about their job).
+- Never repeat or rephrase a question already asked: ${JSON.stringify(asked.slice(-8))}
+- Never give feedback, praise, corrections or band scores. No greetings.
+- Sound like a real person talking, not a textbook: natural spoken British English with contractions (you've, what's, I'd, don't), everyday words and a relaxed rhythm. Vary how you start questions (And…, So…, What about…, Why do you think…, How come…). At most 30 words.
+- First, a very short neutral spoken acknowledgement of what they said (1–4 words, e.g. "Right.", "I see.", "Okay.", "Mm, interesting.", "Fair enough."). Never praise or judge ("great answer" is forbidden). Vary it; don't reuse: ${JSON.stringify(arr(b.recentAcks, 6).map((x) => str(x, 30)))}
+Return JSON: {"ack":"...","question":"...","kind":"challenge"|"probe"|"extend"|"recall"|"clarify"}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { fast: true, temperature: 0.85, maxTokens: 300, timeout: 12000 });
+  const q = str(data.question, 300).replace(/^["“]|["”]$/g, '');
+  if (!q || q.split(/\s+/).length < 3) throw Object.assign(new Error('empty question'), { status: 502 });
+  let ack = str(data.ack, 40).replace(/^["“]|["”]$/g, '');
+  if (ack.split(/\s+/).length > 5 || /\b(great|excellent|good answer|well done|perfect|brilliant|wonderful)\b/i.test(ack)) ack = '';
+  if (ack && !/[.!?]$/.test(ack)) ack += '.';
+  return { question: q, ack, kind: ['challenge', 'probe', 'extend', 'recall', 'clarify'].includes(data.kind) ? data.kind : 'probe', model };
+}
+
+/* ---------------------------------------------------------------- speaking: shape the answer */
+function shapeSpeaking(data, { typed, exam = 'IELTS', source }) {
+  const keys = ['fluency', 'vocabulary', 'grammar', 'pronunciation'];
+  const crit = keys.map((key) => {
+    const c = arr(data.criteria, 8).find((x) => x && x.key === key) || {};
+    let score = wholeBand(c.score);
+    if (key === 'pronunciation' && typed) score = null;
+    return {
+      key,
+      score,
+      observation: str(c.observation, 900) || 'No observation was returned.',
+      practice: str(c.practice, 500) || 'Keep practising this skill with new questions.',
+    };
+  });
+  const scored = crit.map((c) => c.score).filter((s) => s != null);
+  const overall = scored.length ? ieltsRound(scored.reduce((a, b) => a + b, 0) / scored.length) : null;
+  const sufficient = data.sufficientEvidence !== false;
+  return {
+    version: 3,
+    source,
+    exam,
+    scale: 9,
+    audioAssessed: source === 'audio-ai',
+    sufficientEvidence: sufficient,
+    confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : sufficient ? 'medium' : 'low',
+    overall,
+    summary: str(data.summary, 900) || 'Your speaking has been assessed against the four IELTS criteria.',
+    criteria: crit,
+    strengths: arr(data.strengths, 5).map((s) => str(s, 300)).filter(Boolean),
+    improvements: arr(data.improvements, 5)
+      .map((i) => ({ issue: str(i?.issue, 120), evidence: str(i?.evidence, 400), action: str(i?.action, 400) }))
+      .filter((i) => i.issue && i.action),
+    corrections: arr(data.corrections, 8)
+      .map((c) => ({ said: str(c?.said, 300), better: str(c?.better, 300), why: str(c?.why, 200) }))
+      .filter((c) => c.said && c.better),
+    plan: arr(data.plan, 7)
+      .map((p) => ({ day: str(p?.day, 40), task: str(p?.task, 400) }))
+      .filter((p) => p.day && p.task),
+    limitations: arr(data.limitations, 5).map((s) => str(s, 300)).filter(Boolean),
+    nextBandTips: str(data.nextBandTips, 600),
+    created: new Date().toISOString(),
+  };
+}
+
+const SPEAKING_OUTPUT = `Return ONLY this JSON:
+{"criteria":[{"key":"fluency","observation":"2-3 sentences quoting evidence (write this FIRST, then decide the score)","score":3-9 whole number,"practice":"one specific exercise"},{"key":"vocabulary",...},{"key":"grammar",...},{"key":"pronunciation","observation":"...","score":whole number or null,...}],
+"summary":"3 sentences: overall level, the main reason, the most important next step",
+"sufficientEvidence":true|false,"confidence":"low"|"medium"|"high",
+"strengths":["specific, quoting the candidate"] (2-4),
+"improvements":[{"issue":"short title","evidence":"quote or fact from the answers","action":"concrete practice"}] (2-4),
+"corrections":[{"said":"exact words used","better":"natural correct version","why":"short reason"}] (up to 6, only real errors),
+"plan":[{"day":"Day 1","task":"..."}] (5-7 days, specific to this candidate),
+"nextBandTips":"what exactly would move this candidate up half a band",
+"limitations":["honest limits of this assessment"] (1-3)}`;
+
+/* ---------------------------------------------------------------- judge (transcript) */
+// ===== end of PART 2 of 4 — now paste part 3 =====

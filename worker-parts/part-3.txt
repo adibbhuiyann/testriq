@@ -1,0 +1,180 @@
+// ===== Testriq worker · PART 3 of 4 — paste this right after part 2 =====
+async function judge(b, env) {
+  const answers = arr(b.answers, 40).map((a) => ({
+    part: str(a?.part, 60),
+    question: str(a?.question, 500),
+    answer: str(a?.answer, 3000),
+    seconds: Number(a?.seconds) || 0,
+    words: Number(a?.words) || 0,
+    confidence: a?.confidence == null ? null : Number(a.confidence),
+    delay: a?.delay == null || !Number.isFinite(Number(a.delay)) ? null : Math.round(Number(a.delay) * 10) / 10,
+    pauses: Number(a?.pauses) || 0,
+  }));
+  const spoken = answers.filter((a) => a.answer && a.answer !== '(No answer)');
+  const typed = !!b.typed;
+  const m = b.metrics || {};
+  const prompt = `You are ${EXAMINERS[b.examinerId] || EXAMINERS.sajid}, a certified IELTS Speaking examiner. Assess this candidate's complete speaking test.
+
+${SPEAKING_DESCRIPTORS}
+
+${CALIBRATION}
+
+MEASURED FACTS (computed by the app, trust these):
+- Answers given: ${spoken.length}; total words: ${m.words ?? 'unknown'}; average words per answer: ${m.avgWords ?? 'unknown'}
+- Speaking rate: ${m.wpm ? m.wpm + ' words per minute' : 'not measured'}; filler words (um/uh/you know): ${m.fillers ?? 0}
+- Long pauses per minute: ${m.pausesPerMinute ?? 'not measured'}; average delay before answering: ${m.responseDelay != null ? m.responseDelay + ' s' : 'not measured'}
+- Speech-recognition confidence (0–1): ${m.confidence != null ? Number(m.confidence).toFixed(2) : 'not available'}
+- Linking words detected: ${arr(m.linking, 15).map((x) => str(x, 40)).join(', ') || 'none'}
+- Less common words detected: ${arr(m.lessCommonWords, 15).map((x) => str(x, 40)).join(', ') || 'none'}; idiomatic expressions: ${arr(m.idioms, 10).map((x) => str(x, 60)).join(', ') || 'none'}
+- Grammar structures detected: ${arr(m.structures, 20).map((x) => str(x, 40)).join(', ') || 'mostly simple'}
+- Possible slips flagged automatically (check them yourself): ${arr(m.likelySlips, 10).map((x) => str(x, 80)).join('; ') || 'none'}
+- Part 2 long turn: ${m.part2 ? `${Number(m.part2.words) || 0} words in ${Number(m.part2.sec) || 0} s` : 'not in this test'}
+- Answers were ${typed ? 'TYPED (so pronunciation must be null and fluency judged from organisation only)' : 'SPOKEN and transcribed automatically'}
+
+THE TEST (question → candidate's answer):
+${answers.map((a, i) => `#${i + 1} [${a.part}] Q: ${a.question}\nA: ${a.answer || '(no answer)'}${a.seconds ? ` (${Math.round(a.seconds)} s, ${a.words} words${a.confidence != null && a.confidence >= 0 ? `, recognition ${a.confidence.toFixed(2)}` : ''}${a.delay != null ? `, started after ${a.delay} s` : ''}${a.pauses ? `, ${a.pauses} long pause${a.pauses === 1 ? '' : 's'}` : ''})` : ''}`).join('\n\n')}
+
+${SPEAKING_OUTPUT}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.35, maxTokens: 6000 });
+  const assessment = shapeSpeaking(data, { typed, source: 'ai-transcript' });
+  assessment.model = model;
+  if (!typed && (m.confidence == null || m.confidence < 0))
+    assessment.limitations.push('Pronunciation was estimated from the transcript only; record your answers for a fuller check.');
+  return { assessment };
+}
+
+/* ---------------------------------------------------------------- assess (audio) */
+async function assessAudio(form, env) {
+  const files = form.getAll('audio').filter((f) => f && typeof f.arrayBuffer === 'function');
+  if (!files.length) throw Object.assign(new Error('No audio received'), { status: 400 });
+  let total = 0;
+  const parts = [];
+  let meta = [];
+  try {
+    meta = JSON.parse(form.get('metadata') || '[]');
+  } catch {}
+  for (const [i, f] of files.entries()) {
+    const buf = await f.arrayBuffer();
+    total += buf.byteLength;
+    if (total > 14_000_000) throw Object.assign(new Error('Audio too large'), { status: 413 });
+    parts.push({ text: `Recording ${i + 1} — question: ${str(meta[i]?.question, 400) || 'speaking task'}` });
+    parts.push({ inline_data: { mime_type: (f.type || 'audio/wav').split(';')[0], data: toBase64(buf) } });
+  }
+  const prompt = `You are ${EXAMINERS[form.get('examinerId')] || EXAMINERS.sajid}, a certified IELTS Speaking examiner. Listen to the candidate's recordings and assess them.
+Transcribe what you hear, then judge Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation FROM THE AUDIO (pronunciation must be judged from what you hear: sounds, word stress, rhythm, intonation, chunking).
+
+${SPEAKING_DESCRIPTORS}
+
+${CALIBRATION.replace(/- The transcript comes from automatic speech recognition[^\n]*\n/, '').replace(/- Pronunciation from text[^\n]*\n/, '')}
+
+Candidate's own transcript (may be incomplete): ${str(form.get('transcript'), 6000) || '(none)'}
+
+${SPEAKING_OUTPUT.replace('"limitations"', '"transcript":"what you heard, all recordings","limitations"')}`;
+  const { data, model } = await gemini(env, [{ text: prompt }, ...parts], { temperature: 0.2, maxTokens: 7000, timeout: 85000 });
+  const a = shapeSpeaking(data, { typed: false, source: 'audio-ai', exam: str(form.get('exam'), 10) || 'IELTS' });
+  a.transcript = str(data.transcript, 16000);
+  a.model = model;
+  if (!a.limitations.length) a.limitations = ['A practice estimate from an AI examiner, not an official IELTS result.'];
+  return { assessment: a };
+}
+
+/* ---------------------------------------------------------------- writing */
+async function writing(b, env) {
+  const task = b.task === 'ielts-t1' ? 'ielts-t1' : 'ielts-t2';
+  const t1 = task === 'ielts-t1';
+  const response = str(b.response, 12000);
+  const words = (response.match(/\S+/g) || []).length;
+  const prompt = `You are a certified IELTS Writing examiner. Mark this IELTS Academic Writing ${t1 ? 'Task 1 (report on a visual, minimum 150 words)' : 'Task 2 (essay, minimum 250 words)'} strictly against the public band descriptors.
+
+Criteria (whole bands 1–9):
+- ${t1 ? '"ta" Task Achievement: covers requirements, clear overview of main trends/differences/stages, key features highlighted and accurately supported with data, no opinion.' : '"tr" Task Response: addresses all parts of the task, clear position throughout, ideas extended and supported, relevant.'}
+- "cc" Coherence & Cohesion: logical organisation, paragraphing, a range of cohesive devices used appropriately (not mechanical), referencing.
+- "lr" Lexical Resource: range, precision, collocation, less common vocabulary, spelling and word formation.
+- "gr" Grammatical Range & Accuracy: mix of simple and complex structures, proportion of error-free sentences, punctuation.
+
+Use the full range 3–9 and judge only the evidence: weak scripts get 4 or below, strong ones 7–8, near-native ones 8.5–9. Criteria often differ by 1–2 bands. Under the word minimum: ${t1 ? 'Task Achievement' : 'Task Response'} is penalised (under ${t1 ? 150 : 250} words → max 5 for that criterion; under ${t1 ? 100 : 170} words → max 4). Memorised, off-topic or copied-prompt text is penalised. ${t1 ? 'No overview → Task Achievement max 5.' : 'No clear position when asked → Task Response max 5.'} Each criterion is judged independently.
+
+THE TASK:
+${str(b.prompt, 3000)}
+${b.visual ? 'Key data shown in the visual: ' + str(b.visual, 2500) : ''}
+
+THE CANDIDATE'S RESPONSE (${words} words):
+"""${response}"""
+
+Return ONLY this JSON:
+{"criteria":[{"key":"${t1 ? 'ta' : 'tr'}","observation":"2-3 sentences with quotes (write this first)","score":n,"practice":"one specific next step"},{"key":"cc",...},{"key":"lr",...},{"key":"gr",...}],
+"summary":"3 sentences","strengths":["..."] (2-4),"improvements":[{"issue":"...","action":"..."}] (2-4),
+"corrections":[{"excerpt":"exact text from the response","fix":"corrected text","why":"short reason","kind":"grammar"|"spelling"|"punctuation"|"vocabulary"}] (up to 12, real errors only),
+"rewrite":"an improved version of ONE weak sentence or paragraph from the response, at band 8 level",
+"confidence":"low"|"medium"|"high"}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 7000 });
+  const labels = { ta: 'Task achievement', tr: 'Task response', cc: 'Coherence & cohesion', lr: 'Lexical resource', gr: 'Grammatical range & accuracy' };
+  const keys = [t1 ? 'ta' : 'tr', 'cc', 'lr', 'gr'];
+  const criteria = keys.map((key) => {
+    const c = arr(data.criteria, 8).find((x) => x && x.key === key) || {};
+    return { key, label: labels[key], score: wholeBand(c.score) ?? 5, observation: str(c.observation, 900), practice: str(c.practice, 500) };
+  });
+  return {
+    assessment: {
+      source: 'ai',
+      model,
+      overall: ieltsRound(criteria.reduce((n, c) => n + c.score, 0) / 4),
+      criteria,
+      summary: str(data.summary, 900),
+      strengths: arr(data.strengths, 5).map((s) => str(s, 300)).filter(Boolean),
+      improvements: arr(data.improvements, 5).map((i) => ({ issue: str(i?.issue, 120), action: str(i?.action, 400) })).filter((i) => i.issue),
+      corrections: arr(data.corrections, 15)
+        .map((c) => ({ excerpt: str(c?.excerpt, 200), fix: str(c?.fix, 200), why: str(c?.why, 200), kind: ['grammar', 'spelling', 'punctuation', 'vocabulary'].includes(c?.kind) ? c.kind : 'grammar' }))
+        .filter((c) => c.excerpt && c.fix),
+      rewrite: str(data.rewrite, 1500),
+      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'medium',
+    },
+  };
+}
+
+/* ---------------------------------------------------------------- weekly estimate */
+async function weekly(b, env) {
+  const s = b.summary || {};
+  const prompt = `You are a senior IELTS examiner and coach. A learner has finished one week of daily practice in the Testriq app. Estimate their CURRENT IELTS Academic band for each skill and overall, from the evidence below.
+
+Rules:
+- Be realistic and strict; do not inflate. Base each skill only on its evidence. Small samples (1–2 short tests) must be treated cautiously: move towards the middle of the evidence, mark confidence "low".
+- Listening/Reading: the app gives raw accuracy and the official raw-score conversion; short practice sets are easier than a full paper, so a skill band can be up to 0.5 below the converted value when samples are small.
+- Writing/Speaking: use the examiner band scores given (AI or on-device estimates).
+- A skill with no evidence gets band null.
+- Consider consistency and trend (improving or declining) across the week.
+
+Target band: ${str(b.target, 20) || 'not set'}. Days the daily goal was completed: ${Number(b.daysCompleted) || 0} of 7.
+
+EVIDENCE:
+${JSON.stringify(s).slice(0, 12000)}
+
+Return ONLY this JSON:
+{"skills":{"listening":band or null,"reading":band or null,"writing":band or null,"speaking":band or null} (half bands allowed),
+"confidence":"low"|"medium"|"high",
+"summary":"3-4 sentences: where they stand, the gap to the target, the single most important priority",
+"skillNotes":{"listening":"1-2 sentences","reading":"...","writing":"...","speaking":"..."},
+"strengths":["..."] (2-3),"priorities":["..."] (2-4, concrete),
+"nextWeek":[{"day":"Monday","task":"..."}] (7 entries, realistic for the target)}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 5000 });
+  const skills = {};
+  for (const k of ['listening', 'reading', 'writing', 'speaking']) skills[k] = data.skills?.[k] == null ? null : band(data.skills[k]);
+  const have = Object.values(skills).filter((v) => v != null);
+  return {
+    weekly: {
+      source: 'ai',
+      model,
+      skills,
+      overall: have.length ? ieltsRound(have.reduce((a, c) => a + c, 0) / have.length) : null,
+      complete: have.length === 4,
+      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'low',
+      summary: str(data.summary, 1200),
+      skillNotes: Object.fromEntries(['listening', 'reading', 'writing', 'speaking'].map((k) => [k, str(data.skillNotes?.[k], 400)])),
+      strengths: arr(data.strengths, 4).map((x) => str(x, 300)).filter(Boolean),
+      priorities: arr(data.priorities, 5).map((x) => str(x, 300)).filter(Boolean),
+      nextWeek: arr(data.nextWeek, 7).map((d) => ({ day: str(d?.day, 30), task: str(d?.task, 300) })).filter((d) => d.day && d.task),
+      created: new Date().toISOString(),
+    },
+  };
+}
+// ===== end of PART 3 of 4 — now paste part 4 =====

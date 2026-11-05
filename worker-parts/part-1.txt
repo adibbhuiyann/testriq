@@ -1,0 +1,120 @@
+// ===== Testriq worker · PART 1 of 4 — delete everything in the editor, then paste this =====
+/* =====================================================================
+   Testriq AI examiner — Cloudflare Worker (free tier friendly)
+   Examiners: Sajid Shahriar (male) and Jishad Mozmder (female).
+
+   What it does
+   - followup : the next examiner question (IELTS Part 1 / Part 3 probing,
+                challenging follow-ups based on what the candidate said)
+   - judge    : IELTS Speaking band scores from the full interview transcript
+   - assess   : IELTS Speaking band scores from audio recordings
+   - writing  : IELTS Writing Task 1 / Task 2 band scores
+   - weekly   : a weekly IELTS band estimate from a week of practice
+   - account.*: cloud accounts, so progress survives reinstalling the app
+                (needs a D1 database bound as DB — see SETUP.md)
+   - GET /    : health check (shows which model answered)
+
+   Setup (Cloudflare dashboard → Workers → your worker → Settings → Variables and Secrets)
+   - GEMINI_KEY  (Secret)   your Google AI Studio API key   ← required for the AI examiner
+   - DB          (Binding)  a D1 database                    ← required for cloud accounts
+   - ALLOWED     (Text)     extra allowed web origins, comma separated (optional)
+   - MODEL       (Text)     preferred model for scoring (optional)
+   - FAST_MODEL  (Text)     preferred model for follow-up questions (optional)
+   The Android app's origin (https://appassets.androidplatform.net) and
+   https://adibbhuiyann.github.io are always allowed.
+   ===================================================================== */
+
+const DEFAULT_ORIGINS = ['https://appassets.androidplatform.net', 'https://adibbhuiyann.github.io'];
+const SCORING_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.1-flash-lite'];
+const FAST_MODELS = ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+const EXAMINERS = { sajid: 'Sajid Shahriar', adib: 'Sajid Shahriar', jishad: 'Jishad Mozmder' };
+
+/* ---------------------------------------------------------------- rubric */
+const SPEAKING_DESCRIPTORS = `IELTS SPEAKING — the four criteria, scored as whole bands 1–9 (summarised in plain words):
+
+FLUENCY & COHERENCE (key "fluency")
+9: speaks fluently, any hesitation is about ideas not language; fully coherent, topics developed fully and appropriately.
+8: fluent with only occasional repetition or self-correction; hesitation usually content-related; develops topics coherently.
+7: speaks at length without noticeable effort or loss of coherence; some language-related hesitation, repetition or self-correction; uses a range of connectives and discourse markers flexibly.
+6: willing to speak at length but sometimes loses coherence through repetition, self-correction or hesitation; uses a range of connectives but not always appropriately.
+5: usually keeps going but relies on repetition, self-correction and/or slow speech; overuses certain connectives; simple speech fluent, complex communication causes problems.
+4: cannot respond without noticeable pauses, may speak slowly with frequent repetition; links basic sentences with simple connectives; breakdowns in coherence.
+3: long pauses, limited ability to link sentences, gives only simple responses.
+
+LEXICAL RESOURCE (key "vocabulary")
+9: full flexibility and precision, idiomatic language used naturally and accurately.
+8: wide resource used readily and flexibly for precise meaning; less common and idiomatic vocabulary used skilfully with occasional inaccuracies; effective paraphrase.
+7: flexible on a variety of topics; some less common and idiomatic vocabulary, awareness of style and collocation with some inappropriate choices; effective paraphrase.
+6: wide enough vocabulary to discuss topics at length and make meaning clear despite inappropriacies; generally paraphrases successfully.
+5: manages familiar and unfamiliar topics with limited flexibility; attempts paraphrase with mixed success.
+4: basic vocabulary, adequate for familiar topics only; frequent inappropriate word choice; rarely attempts paraphrase.
+
+GRAMMATICAL RANGE & ACCURACY (key "grammar")
+9: full range of structures, naturally and appropriately; consistently accurate apart from native-speaker-like slips.
+8: wide range used flexibly; majority of sentences error-free, only occasional inappropriacies or basic/non-systematic errors.
+7: range of complex structures with some flexibility; frequently error-free sentences though some errors persist.
+6: mix of simple and complex structures with limited flexibility; frequent mistakes with complex structures but these rarely impede communication.
+5: basic sentence forms with reasonable accuracy; limited range of complex structures which usually contain errors.
+4: basic sentence forms and some correct simple sentences; subordinate structures rare; errors frequent.
+
+PRONUNCIATION (key "pronunciation")
+9: full range of features with precision and subtlety; effortless to understand.
+8: wide range of features; sustains flexible use with only occasional lapses; easy to understand; L1 accent has minimal effect.
+7: shows all the positive features of 6 and some, but not all, of 8.
+6: range of features with mixed control; some effective intonation and stress but not sustained; generally understood though mispronunciation of words or sounds reduces clarity at times.
+5: shows all the positive features of 4 and some, but not all, of 6.
+4: limited range of features; attempts at control are frequent lapses; frequent mispronunciations cause some difficulty for the listener.`;
+
+const CALIBRATION = `CALIBRATION RULES (a fair, accurate, experienced examiner):
+- USE THE FULL RANGE 3–9. Judge only the evidence in front of you. Do NOT default to 5.5–6.5: a weak candidate gets 4 or below, a strong one 7–8, a near-native one 8.5–9. Two different candidates must not get the same band unless their evidence really is equivalent.
+- Anchor each criterion with these signals (they are typical, not rules):
+  · Band 4: answers of a few words, long pauses, basic vocabulary only, frequent basic errors, almost no linking.
+  · Band 5: answers usually extended but repetitive; slow or hesitant; simple linking (and, but, because); complex sentences rare and often wrong.
+  · Band 6: willing to speak at length with some loss of coherence; enough vocabulary to discuss topics; mix of simple and complex sentences with noticeable errors.
+  · Band 7: speaks at length easily; some less common words and idioms; frequent error-free complex sentences; flexible linking.
+  · Band 8: fluent with rare hesitation; wide, precise, idiomatic vocabulary; wide range of structures, mostly error-free.
+  · Band 9: native-like flexibility, precision and accuracy throughout.
+- Score each criterion independently. It is normal for criteria to differ by 1–2 bands.
+- Very short answers (Part 1 under ~15 words, Part 3 under ~30 words, Part 2 under ~1 minute or ~100 words) limit Fluency & Coherence to 5 or below.
+- Memorised or off-topic speech limits Fluency & Coherence and Lexical Resource.
+- Less than ~60 words of total speech = insufficient evidence: set sufficientEvidence false and confidence "low", and keep scores cautious (4–5).
+- The transcript comes from automatic speech recognition: punctuation, capitals and fillers may be missing or wrong, and recognition mistakes can look like grammar or word errors. Do not penalise punctuation. Only treat something as a grammar/vocabulary error when it is clearly the candidate's own error.
+- Pronunciation from text: use the recognition confidence, the speaking rate and pauses. Very high confidence (≥0.92) with a natural rate (120–170 wpm) and few pauses suggests 7–8; ≥0.85 suggests 6–7; low confidence (<0.7) or many garbled words suggests 5 or below. If the answers were typed, pronunciation must be null.
+- Fluency from timing: the app measured how long the candidate took to start answering (response delay) and how many long pauses (over ~2 seconds) they made. Long delays (over 4 s) and frequent pauses (over 3 a minute) mean hesitation; under 2 s and under 1 pause a minute mean fluent delivery.
+- Quote the candidate's actual words as evidence. Corrections must quote the exact words used.`;
+
+/* ---------------------------------------------------------------- helpers */
+const json = (data, status, cors) =>
+  new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const str = (v, max = 600) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const arr = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+const band = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? clamp(Math.round(n * 2) / 2, 0, 9) : null;
+};
+const wholeBand = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? clamp(Math.round(n), 1, 9) : null;
+};
+/** Official IELTS rounding of an average to the nearest half band (.25 → .5, .75 → next whole). */
+const ieltsRound = (x) => {
+  const f = Math.floor(x),
+    d = x - f;
+  return d < 0.25 ? f : d < 0.75 ? f + 0.5 : f + 1;
+};
+const sanitizeTurns = (messages) =>
+  arr(messages, 40)
+    .map((m) => ({ role: m?.role === 'user' ? 'Candidate' : 'Examiner', text: str(m?.content, 1500) }))
+    .filter((m) => m.text);
+
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(binary);
+}
+
+/** Calls Gemini, trying several models until one answers. Returns { data, model }. */
+// ===== end of PART 1 of 4 — now paste part 2 =====
