@@ -31,27 +31,27 @@
   <h2>What we collect and why</h2>
   <ul>
     <li><b>Account details</b> — if you create an account: your email address and name, and (if you choose Google or Facebook sign-in) your profile name and photo from that service. Used to sign you in and keep your progress.</li>
-    <li><b>Practice data</b> — your answers, results, band estimates, goals and settings. Stored on your device. If you are signed in, a copy is stored in our cloud database (Google Firebase) so you can restore it on another device.</li>
+    <li><b>Practice data</b> — your answers, results, band estimates, goals and settings. Stored on your device. If you are signed in, a copy is stored in our cloud database (Google Firebase, or Testriq's own server on Cloudflare) so you can log in again after reinstalling or on another device. In the Android app, a copy is also kept in your phone's own backup (Android backup to your Google account), so your account and progress come back if you reinstall the app. You can also save a backup file yourself; it stays wherever you choose to keep it.</li>
     <li><b>Microphone</b> — used only while you answer a speaking question. Your device's speech recognition service (for example Google) converts speech to text. Testriq does not store raw audio from live speaking tests.</li>
     <li><b>AI examiner</b> — when you request AI feedback, the text of your speaking or writing answers (and, only if you choose an audio assessment, the recordings) is sent to our AI service (a Cloudflare Worker) and processed by Google's Gemini API to produce your scores. Google's free API tier may use submitted content to improve its products. Do not include sensitive personal information in your answers.</li>
-    <li><b>Notifications</b> — optional daily study reminders, scheduled on your device.</li>
+    <li><b>Notifications</b> — study reminders (a daily reminder at your chosen time, and short nudges about unfinished goals or after a few days away), scheduled on your device. You can turn them off in Settings or in your phone's settings.</li>
   </ul>
   <p>We do not show ads, we do not sell your data and we do not use it for tracking.</p>
 </section>
 <section>
   <h2>Sharing</h2>
-  <p>Data is processed only by the services above (Google Firebase for accounts and sync, Cloudflare and Google Gemini for AI feedback, your device's speech service for recognition) under their own privacy terms. We do not share it with anyone else unless the law requires it.</p>
+  <p>Data is processed only by the services above (Google Firebase or Cloudflare for accounts and sync, Android backup for your phone's own backup, Cloudflare and Google Gemini for AI feedback, your device's speech service for recognition) under their own privacy terms. We do not share it with anyone else unless the law requires it.</p>
 </section>
 <section>
   <h2>Security and retention</h2>
-  <p>Data is sent over encrypted connections (HTTPS). Account and synced data are kept until you delete your account. On-device data stays until you delete it in Settings or uninstall the app.</p>
+  <p>Data is sent over encrypted connections (HTTPS). Passwords are never stored in readable form: only a salted, one-way hash is kept. Account and synced data are kept until you delete your account. On-device data stays until you delete it in Settings or uninstall the app.</p>
 </section>
 <section id="delete-account">
   <h2>Delete your account and data</h2>
   <ul>
     <li><b>In the app:</b> Settings → Data &amp; privacy → <b>Delete account</b>. This permanently deletes your account and the practice data stored in the cloud, then clears the data on your device.</li>
     <li><b>Without the app:</b> email <a href="mailto:symetree4@gmail.com?subject=Delete%20my%20Testriq%20account">symetree4@gmail.com</a> from the address you signed up with and write "Delete my Testriq account". We will delete your account and data within 30 days and confirm by email.</li>
-    <li>To remove only on-device data: Settings → Data &amp; privacy → Reset local data.</li>
+    <li>To remove only on-device data: Settings → Data &amp; privacy → Clear this device (as a guest), or uninstall the app. Deleting your account also removes the copy in your phone's backup.</li>
   </ul>
 </section>
 <section>

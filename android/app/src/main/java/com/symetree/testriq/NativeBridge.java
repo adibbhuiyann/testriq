@@ -113,11 +113,76 @@ public class NativeBridge {
 
     @JavascriptInterface
     public boolean notificationsAllowed() {
-        if (Build.VERSION.SDK_INT < 33) {
-            android.app.NotificationManager nm = act.getSystemService(android.app.NotificationManager.class);
-            return nm == null || nm.areNotificationsEnabled();
-        }
-        return act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+        android.app.NotificationManager nm = act.getSystemService(android.app.NotificationManager.class);
+        boolean enabled = nm == null || nm.areNotificationsEnabled();
+        if (Build.VERSION.SDK_INT < 33) return enabled;
+        return enabled && act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Opens the system page where Testriq's notifications can be switched on. */
+    @JavascriptInterface
+    public void openNotificationSettings() {
+        act.runOnUiThread(act::openNotificationSettings);
+    }
+
+    /** Opens the battery settings, so reminders are not blocked by battery optimisation. */
+    @JavascriptInterface
+    public void openBatterySettings() {
+        act.runOnUiThread(() -> {
+            try {
+                Intent i = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                act.startActivity(i);
+            } catch (Exception e) {
+                openAppSettings();
+            }
+        });
+    }
+
+    /** {"allowed":…, "daily":…, "nextDaily":…, "lastPosted":…, "batteryOptimised":…} */
+    @JavascriptInterface
+    public String reminderStatus() {
+        return Reminders.status(act, notificationsAllowed());
+    }
+
+    /** Name, target band and the last practice day (yyyy-MM-dd) make reminders personal and relevant. */
+    @JavascriptInterface
+    public void setProfile(String name, String target, String lastPracticeDay) {
+        Reminders.prefs(act).edit()
+                .putString("name", name == null ? "" : name.trim())
+                .putString("target", target == null ? "" : target.trim())
+                .putString("lastPractice", lastPracticeDay == null ? "" : lastPracticeDay)
+                .apply();
+    }
+
+    // ------------------------------------------------------------ backup of the learner's data
+
+    /** Keeps a copy of the account and progress where Android's backup service saves it. */
+    @JavascriptInterface
+    public boolean backupSave(String json) {
+        return Backup.save(act, json);
+    }
+
+    /** The copy restored by Android after the app was reinstalled ("" when there is none). */
+    @JavascriptInterface
+    public String backupLoad() {
+        return Backup.load(act);
+    }
+
+    @JavascriptInterface
+    public String backupInfo() {
+        return Backup.info(act);
+    }
+
+    @JavascriptInterface
+    public void backupClear() {
+        Backup.clear(act);
+    }
+
+    /** Saves a text file (e.g. a progress backup) wherever the learner chooses. */
+    @JavascriptInterface
+    public void saveFile(String name, String mime, String text) {
+        act.runOnUiThread(() -> act.saveFile(name, mime, text));
     }
 
     @JavascriptInterface

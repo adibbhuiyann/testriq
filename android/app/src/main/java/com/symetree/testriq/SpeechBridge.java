@@ -2,6 +2,9 @@ package com.symetree.testriq;
 
 import android.content.Intent;
 import android.media.AudioManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -46,10 +49,12 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
 
     private Job current;
     private Job pending;
-    private float userRate = 0.95f;
+    private float userRate = 1.0f;
     private String accent = "en-GB";
-    private Voice maleVoice, femaleVoice;
-    private boolean maleExact, femaleExact;
+    private Voice maleVoice, femaleVoice;          // best voices, online (higher quality) ones allowed
+    private Voice maleLocal, femaleLocal;          // best voices that work offline
+    private boolean maleExact, femaleExact, maleLocalExact, femaleLocalExact;
+    private boolean networkVoiceFailed;
 
     private SpeechRecognizer recognizer;
     private String recognitionLang = "en-GB";
@@ -64,6 +69,8 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         int[] offsets = new int[0];
         int chunks;
         boolean started;
+        boolean offline;
+        boolean usedNetwork;
 
         Job(String text, String id, float volume, String examinerId) {
             this.text = text;
@@ -133,11 +140,26 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         return 0;
     }
 
+    private boolean online() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) act.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities c = n == null ? null : cm.getNetworkCapabilities(n);
+            return c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Picks the most natural-sounding voice for each examiner. A real voice of the right gender
+     * always beats a pitch-shifted one; higher quality beats lower; Google's online (neural) voices
+     * are preferred while the phone is connected, with the best offline voice kept as a fallback.
+     */
     private void chooseVoices() {
-        maleVoice = null;
-        femaleVoice = null;
-        maleExact = false;
-        femaleExact = false;
+        maleVoice = femaleVoice = maleLocal = femaleLocal = null;
+        maleExact = femaleExact = maleLocalExact = femaleLocalExact = false;
         Set<Voice> voices;
         try {
             voices = tts.getVoices();
@@ -145,45 +167,50 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
             voices = null;
         }
         if (voices == null) return;
-        int bestMale = Integer.MIN_VALUE, bestFemale = Integer.MIN_VALUE;
+        boolean net = online() && !networkVoiceFailed;
+        int bestMale = Integer.MIN_VALUE, bestFemale = Integer.MIN_VALUE, bestMaleL = Integer.MIN_VALUE, bestFemaleL = Integer.MIN_VALUE;
         for (Voice v : voices) {
             Locale l = v.getLocale();
             if (l == null || !"en".equals(l.getLanguage())) continue;
             Set<String> f = v.getFeatures();
-            if (f != null && f.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+            boolean needsNet = v.isNetworkConnectionRequired();
+            if (f != null && f.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) && !needsNet) continue;
             int g = genderOf(v.getName());
-            int base = localeScore(l) + v.getQuality() / 100 + (v.isNetworkConnectionRequired() ? 0 : 6);
-            int m = base + (g > 0 ? 100 : g < 0 ? -100 : 0);
-            int fe = base + (g < 0 ? 100 : g > 0 ? -100 : 0);
-            if (m > bestMale) {
-                bestMale = m;
-                maleVoice = v;
-                maleExact = g > 0;
+            // quality: VERY_HIGH 500 → 25, HIGH 400 → 20, NORMAL 300 → 15
+            int base = localeScore(l) + v.getQuality() / 20 - (v.getLatency() >= Voice.LATENCY_HIGH ? 4 : 0);
+            int m = base + (g > 0 ? 200 : g < 0 ? -200 : 0);
+            int fe = base + (g < 0 ? 200 : g > 0 ? -200 : 0);
+            if (!needsNet) {
+                if (m > bestMaleL) { bestMaleL = m; maleLocal = v; maleLocalExact = g > 0; }
+                if (fe > bestFemaleL) { bestFemaleL = fe; femaleLocal = v; femaleLocalExact = g < 0; }
             }
-            if (fe > bestFemale) {
-                bestFemale = fe;
-                femaleVoice = v;
-                femaleExact = g < 0;
-            }
+            if (needsNet && !net) continue;
+            int bonus = needsNet ? 12 : 0;
+            if (m + bonus > bestMale) { bestMale = m + bonus; maleVoice = v; maleExact = g > 0; }
+            if (fe + bonus > bestFemale) { bestFemale = fe + bonus; femaleVoice = v; femaleExact = g < 0; }
         }
         Log.i(TAG, "Voices: male=" + (maleVoice == null ? "-" : maleVoice.getName())
-                + " female=" + (femaleVoice == null ? "-" : femaleVoice.getName()));
+                + " female=" + (femaleVoice == null ? "-" : femaleVoice.getName())
+                + " offline male=" + (maleLocal == null ? "-" : maleLocal.getName())
+                + " offline female=" + (femaleLocal == null ? "-" : femaleLocal.getName()));
     }
 
-    private void applyVoice(String examinerId) {
+    private void applyVoice(String examinerId, boolean offlineOnly) {
         boolean female = "jishad".equals(examinerId);
-        Voice v = female ? femaleVoice : maleVoice;
-        boolean exact = female ? femaleExact : maleExact;
+        Voice v = offlineOnly ? (female ? femaleLocal : maleLocal) : (female ? femaleVoice : maleVoice);
+        boolean exact = offlineOnly ? (female ? femaleLocalExact : maleLocalExact) : (female ? femaleExact : maleExact);
         try {
             if (v != null) tts.setVoice(v);
             else tts.setLanguage(Locale.forLanguageTag(accent));
         } catch (Exception e) {
             tts.setLanguage(Locale.UK);
         }
-        // When the device has no voice of the right gender, shape the pitch instead.
-        float pitch = exact ? (female ? 1.04f : 0.96f) : (female ? 1.18f : 0.80f);
+        // A real voice of the right gender keeps its natural pitch. Only when the phone has none is
+        // the pitch shaped, and gently, because strong shifting sounds robotic.
+        float pitch = exact ? 1.0f : (female ? 1.1f : 0.88f);
         tts.setPitch(pitch);
-        tts.setSpeechRate(userRate);
+        // each examiner has a slightly different, natural pace
+        tts.setSpeechRate(userRate * (female ? 1.02f : 0.98f));
     }
 
     // ------------------------------------------------------------ speaking
@@ -251,7 +278,13 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
     private void startJob(Job job) {
         current = job;
         tts.stop();
-        applyVoice(job.examinerId);
+        applyVoice(job.examinerId, job.offline);
+        Voice using = null;
+        try {
+            using = tts.getVoice();
+        } catch (Exception ignored) {
+        }
+        job.usedNetwork = using != null && using.isNetworkConnectionRequired();
         List<String> parts = chunk(job.text, job);
         Bundle params = new Bundle();
         params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, job.volume);
@@ -325,10 +358,20 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         private void fail(String utteranceId) {
             int[] i = new int[1];
             Job j = jobFor(utteranceId, i);
-            if (j != null) {
-                if (current == j) current = null;
-                emit(j.id, "error", 0, 0);
+            if (j == null) return;
+            if (j.usedNetwork && !j.offline && !j.started) {
+                // The online voice could not be reached: say it again with the best offline voice.
+                networkVoiceFailed = true;
+                final Job retry = new Job(j.text, j.id, j.volume, j.examinerId);
+                retry.offline = true;
+                main.post(() -> {
+                    chooseVoices();
+                    if (current == j) startJob(retry);
+                });
+                return;
             }
+            if (current == j) current = null;
+            emit(j.id, "error", 0, 0);
         }
     };
 
@@ -355,6 +398,15 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
     @JavascriptInterface
     public void setRate(double rate) {
         userRate = (float) Math.max(0.6, Math.min(1.4, rate));
+    }
+
+    /** Re-checks the voices, e.g. after the phone goes online or new voices are installed. */
+    @JavascriptInterface
+    public void refreshVoices() {
+        main.post(() -> {
+            networkVoiceFailed = false;
+            if (ttsReady) chooseVoices();
+        });
     }
 
     /** "en-GB", "en-US", "en-AU" or "en-IN": examiner accent preference. */
