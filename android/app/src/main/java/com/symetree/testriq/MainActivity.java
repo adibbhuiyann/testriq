@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        applySystemBarAppearance(false);
 
         configureWebView();
         speech = new SpeechBridge(this);
@@ -109,24 +110,30 @@ public class MainActivity extends Activity {
                 w.setStatusBarColor(Color.TRANSPARENT);
                 w.setNavigationBarColor(Color.TRANSPARENT);
             }
-            if (Build.VERSION.SDK_INT >= 29) {
-                w.setNavigationBarContrastEnforced(false);
-            }
+            w.setNavigationBarContrastEnforced(false);
         } else {
             w.setStatusBarColor(0xFFFFFFFF);
             if (Build.VERSION.SDK_INT >= 27) w.setNavigationBarColor(0xFFFFFFFF);
         }
-        applySystemBarAppearance(false);
     }
 
     void applySystemBarAppearance(boolean dark) {
+        try {
+            applyBars(dark);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "System bar appearance not applied", e);
+        }
+    }
+
+    private void applyBars(boolean dark) {
         darkTheme = dark;
         Window w = getWindow();
         int bg = dark ? DARK_BG : LIGHT_BG;
         if (root != null) root.setBackgroundColor(bg);
         if (web != null) web.setBackgroundColor(bg);
+        View decorView = w.getDecorView();
         if (Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController c = w.getInsetsController();
+            WindowInsetsController c = decorView.getWindowInsetsController();
             if (c != null) {
                 int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                         | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
