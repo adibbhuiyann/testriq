@@ -1,232 +1,101 @@
-
-name: Build Testriq Android APK
+name: Build Testriq Android app
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - "index.html"
+      - "config.js"
+      - "android/**"
+      - "testriq-full-project.zip"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    name: Build APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Configure Android SDK
+      - name: Unpack zip
         run: |
-          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-          echo "/usr/local/lib/android/sdk/platform-tools" >> "$GITHUB_PATH"
-          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Find Testriq web files
-        shell: bash
-        run: |
-          if [ -f index.html ]; then
-            echo "WEB_DIR=." >> "$GITHUB_ENV"
-          elif [ -f testriq-release/index.html ]; then
-            echo "WEB_DIR=testriq-release" >> "$GITHUB_ENV"
-          else
-            echo "Could not find index.html"
-            exit 1
+          if [ -f testriq-full-project.zip ]; then
+            unzip -o -q testriq-full-project.zip -x '.github/*'
+            echo "UNPACKED=true" >> "$GITHUB_ENV"
           fi
 
-      - name: Prepare web app
-        run: |
-          mkdir -p www
-          rsync -a \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='www' \
-            --exclude='node_modules' \
-            "$WEB_DIR/" www/
-
-      - name: Install Capacitor
-        run: |
-          npm init -y
-          npm install @capacitor/core@^8 @capacitor/android@^8 @capacitor-community/text-to-speech@^8.0.2
-          npm install --save-dev @capacitor/cli@^8 esbuild
-
-          
-      - name: Build Testriq speech bridge
-        run: |
-          cat > testriq-speech-entry.js <<'EOF'
-          import { TextToSpeech } from '@capacitor-community/text-to-speech';
-
-          let currentId = null;
-          let stopPromise = Promise.resolve();
-
-          const rangeListenerReady = TextToSpeech.addListener('onRangeStart', (event) => {
-            if (currentId !== null) {
-              window.testriqSpeechEvent?.(
-                currentId,
-                'word',
-                event.start,
-                event.end
-              );
-            }
-          });
-
-          window.TestriqSpeech = {
-            async speak(text, id, volume = 1) {
-              const requestId = String(id);
-              currentId = requestId;
-
-              try {
-                await stopPromise;
-                await rangeListenerReady;
-
-                if (currentId !== requestId) return;
-
-                window.testriqSpeechEvent?.(requestId, 'start');
-
-                await TextToSpeech.speak({
-                  text: String(text),
-                  lang: 'en-GB',
-                  rate: 0.92,
-                  pitch: 1,
-                  volume: Math.max(0, Math.min(1, Number(volume) || 0))
-                });
-
-                if (currentId === requestId) {
-                  window.testriqSpeechEvent?.(requestId, 'end');
-                  currentId = null;
-                }
-              } catch (error) {
-                if (currentId === requestId) {
-                  window.testriqSpeechEvent?.(requestId, 'error');
-                  currentId = null;
-                }
-              }
-            },
-
-            async stop() {
-              currentId = null;
-              stopPromise = TextToSpeech.stop().catch(() => {});
-              await stopPromise;
-            }
-          };
-          EOF
-
-          npx esbuild testriq-speech-entry.js \
-            --bundle \
-            --format=iife \
-            --platform=browser \
-            --outfile=www/testriq-speech.js
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("www/index.html")
-          html = path.read_text()
-          tag = '<script src="./testriq-speech.js"></script>'
-
-          if tag not in html:
-              match = re.search(r"<script\b", html, re.IGNORECASE)
-              if match is None:
-                  raise RuntimeError("Could not find a script tag in www/index.html")
-              html = html[:match.start()] + tag + "\n" + html[match.start():]
-              path.write_text(html)
-
-          print("Testriq speech bridge added!")
-          PY
-
-
-      - name: Configure Capacitor
-        run: |
-          cat > capacitor.config.json <<'EOF'
-          {
-            "appId": "com.symetree.testriq",
-            "appName": "Testriq",
-            "webDir": "www"
-          }
-          EOF
-
-
- 
-      - name: Generate Android project and add permissions
-        run: |
-          npx cap add android
-          npx cap sync android
-
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("android/app/src/main/AndroidManifest.xml")
-
-          if not path.exists():
-              raise FileNotFoundError("AndroidManifest.xml was not generated!")
-
-          content = path.read_text()
-
-          required = [
-              "android.permission.CAMERA",
-              "android.permission.RECORD_AUDIO",
-              "android.permission.MODIFY_AUDIO_SETTINGS",
-          ]
-
-          missing = [p for p in required if p not in content]
-
-          if missing:
-              application = re.search(r"<application\b", content)
-
-              if application is None:
-                  raise RuntimeError("Could not find application element!")
-
-              permission_tags = "\n".join(
-                  f'    <uses-permission android:name="{p}" />'
-                  for p in missing
-              )
-
-              content = (
-                  content[:application.start()]
-                  + permission_tags
-                  + "\n\n"
-                  + content[application.start():]
-              )
-
-              path.write_text(content)
-
-          print("Android permissions configured!")
-          PY
-
-
-      - name: Build APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-java@v4
         with:
-          name: Testriq-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Version
+        run: |
+          echo "VERSION_NAME=$(grep '^VERSION_NAME=' android/version.properties | cut -d= -f2 | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))" >> "$GITHUB_ENV"
+      - name: Signing key
+        env:
+          KEY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in android/keystore/upload-keystore.p12.enc -out "$RUNNER_TEMP/upload.p12" -pass env:KEY_PASS
+          echo "TESTRIQ_KEYSTORE=$RUNNER_TEMP/upload.p12" >> "$GITHUB_ENV"
+          echo "TESTRIQ_KEYSTORE_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon bundleRelease assembleRelease 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/bundle/release/app-release.aab "dist/Testriq-$VERSION_NAME-$VERSION_CODE.aab"
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/Testriq-$VERSION_NAME-$VERSION_CODE.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Testriq-app
+          path: dist/*
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}-${{ env.VERSION_CODE }}
+          name: Testriq ${{ env.VERSION_NAME }} (build ${{ env.VERSION_CODE }})
+          files: dist/*
+
+      - name: Save project into repository
+        if: env.UNPACKED == 'true'
+        run: |
+          git config user.name "testriq-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git rm -q --cached testriq-full-project.zip
+          rm -rf dist build.log testriq-full-project.zip
+          git add -A
+          git commit -q -m "Unpack Testriq project [skip ci]"
+          git push
+
+      - name: Save error log
+        if: failure()
+        run: |
+          [ -f build.log ] || echo "No log" > build.log
+          git config user.name "testriq-ci"
+          git config user.email "ci@users.noreply.github.com"
+          tail -n 300 build.log > /tmp/last-build.log
+          git checkout --orphan ci-logs
+          git rm -rf -q --cached .
+          cp /tmp/last-build.log last-build.log
+          git add -f last-build.log
+          git commit -q -m "Build log"
+          git push -f origin ci-logs 
