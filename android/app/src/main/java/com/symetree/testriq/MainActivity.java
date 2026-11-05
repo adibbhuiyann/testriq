@@ -203,7 +203,7 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setTextZoom(100);
-        s.setLoadWithOverviewMode(true);
+        s.setLoadWithOverviewMode(false);
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setUserAgentString(s.getUserAgentString() + " TestriqApp/" + getString(R.string.app_version));
@@ -211,6 +211,14 @@ public class MainActivity extends Activity {
             WebView.setWebContentsDebuggingEnabled(true);
         }
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
+        // Native feel: no "Copy / Select all / Web search" menu on long press,
+        // except inside text boxes where people type their answers.
+        web.setOnLongClickListener(v -> {
+            WebView.HitTestResult hit = web.getHitTestResult();
+            return hit == null || hit.getType() != WebView.HitTestResult.EDIT_TEXT_TYPE;
+        });
         web.setWebViewClient(new AppClient());
         web.setWebChromeClient(new AppChrome());
     }
