@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="splash_bg">#0B1230</color>
-    <color name="window_bg">#F4F6FB</color>
+    <color name="window_bg">#E9EBEF</color>
     <color name="window_bg_dark">#0D1221</color>
     <color name="brand_blue">#3968F5</color>
     <color name="icon_bg_start">#315DF0</color>

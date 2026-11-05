@@ -9,10 +9,13 @@
    - assess   : IELTS Speaking band scores from audio recordings
    - writing  : IELTS Writing Task 1 / Task 2 band scores
    - weekly   : a weekly IELTS band estimate from a week of practice
+   - account.*: cloud accounts, so progress survives reinstalling the app
+                (needs a D1 database bound as DB — see SETUP.md)
    - GET /    : health check (shows which model answered)
 
    Setup (Cloudflare dashboard → Workers → your worker → Settings → Variables and Secrets)
-   - GEMINI_KEY  (Secret)   your Google AI Studio API key   ← required
+   - GEMINI_KEY  (Secret)   your Google AI Studio API key   ← required for the AI examiner
+   - DB          (Binding)  a D1 database                    ← required for cloud accounts
    - ALLOWED     (Text)     extra allowed web origins, comma separated (optional)
    - MODEL       (Text)     preferred model for scoring (optional)
    - FAST_MODEL  (Text)     preferred model for follow-up questions (optional)
@@ -61,14 +64,22 @@ PRONUNCIATION (key "pronunciation")
 5: shows all the positive features of 4 and some, but not all, of 6.
 4: limited range of features; attempts at control are frequent lapses; frequent mispronunciations cause some difficulty for the listener.`;
 
-const CALIBRATION = `CALIBRATION RULES (follow strictly — a fair, strict, experienced examiner):
-- Most learners score 5.0–6.5. Band 7+ needs clear, sustained evidence across many answers; band 8+ is rare.
-- Score each criterion independently on the evidence. Never give every criterion the same score unless the evidence truly is identical.
+const CALIBRATION = `CALIBRATION RULES (a fair, accurate, experienced examiner):
+- USE THE FULL RANGE 3–9. Judge only the evidence in front of you. Do NOT default to 5.5–6.5: a weak candidate gets 4 or below, a strong one 7–8, a near-native one 8.5–9. Two different candidates must not get the same band unless their evidence really is equivalent.
+- Anchor each criterion with these signals (they are typical, not rules):
+  · Band 4: answers of a few words, long pauses, basic vocabulary only, frequent basic errors, almost no linking.
+  · Band 5: answers usually extended but repetitive; slow or hesitant; simple linking (and, but, because); complex sentences rare and often wrong.
+  · Band 6: willing to speak at length with some loss of coherence; enough vocabulary to discuss topics; mix of simple and complex sentences with noticeable errors.
+  · Band 7: speaks at length easily; some less common words and idioms; frequent error-free complex sentences; flexible linking.
+  · Band 8: fluent with rare hesitation; wide, precise, idiomatic vocabulary; wide range of structures, mostly error-free.
+  · Band 9: native-like flexibility, precision and accuracy throughout.
+- Score each criterion independently. It is normal for criteria to differ by 1–2 bands.
 - Very short answers (Part 1 under ~15 words, Part 3 under ~30 words, Part 2 under ~1 minute or ~100 words) limit Fluency & Coherence to 5 or below.
 - Memorised or off-topic speech limits Fluency & Coherence and Lexical Resource.
-- Less than ~60 words of total speech = insufficient evidence: set sufficientEvidence false and confidence "low", and keep scores conservative (4–5).
+- Less than ~60 words of total speech = insufficient evidence: set sufficientEvidence false and confidence "low", and keep scores cautious (4–5).
 - The transcript comes from automatic speech recognition: punctuation, capitals and fillers may be missing or wrong, and recognition mistakes can look like grammar or word errors. Do not penalise punctuation. Only treat something as a grammar/vocabulary error when it is clearly the candidate's own error.
-- Pronunciation from text: use the recognition confidence and words-per-minute figures. High confidence (≥0.85) with a natural rate (110–170 wpm) suggests clear speech (6–7); low confidence (<0.7) or many garbled words suggests 5 or below. If the answers were typed, pronunciation must be null.
+- Pronunciation from text: use the recognition confidence, the speaking rate and pauses. Very high confidence (≥0.92) with a natural rate (120–170 wpm) and few pauses suggests 7–8; ≥0.85 suggests 6–7; low confidence (<0.7) or many garbled words suggests 5 or below. If the answers were typed, pronunciation must be null.
+- Fluency from timing: the app measured how long the candidate took to start answering (response delay) and how many long pauses (over ~2 seconds) they made. Long delays (over 4 s) and frequent pauses (over 3 a minute) mean hesitation; under 2 s and under 1 pause a minute mean fluent delivery.
 - Quote the candidate's actual words as evidence. Corrections must quote the exact words used.`;
 
 /* ---------------------------------------------------------------- helpers */
@@ -196,12 +207,17 @@ ${
 - If they said they don't know, offer an easier angle.
 - Keep work/study questions consistent with what they do (do not ask a student about their job).
 - Never repeat or rephrase a question already asked: ${JSON.stringify(asked.slice(-8))}
-- Never give feedback, praise, corrections or band scores. No greetings. Natural spoken British English, at most 32 words.
-Return JSON: {"question":"...","kind":"challenge"|"probe"|"extend"|"recall"|"clarify"}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { fast: true, temperature: 0.8, maxTokens: 300, timeout: 12000 });
+- Never give feedback, praise, corrections or band scores. No greetings.
+- Sound like a real person talking, not a textbook: natural spoken British English with contractions (you've, what's, I'd, don't), everyday words and a relaxed rhythm. Vary how you start questions (And…, So…, What about…, Why do you think…, How come…). At most 30 words.
+- First, a very short neutral spoken acknowledgement of what they said (1–4 words, e.g. "Right.", "I see.", "Okay.", "Mm, interesting.", "Fair enough."). Never praise or judge ("great answer" is forbidden). Vary it; don't reuse: ${JSON.stringify(arr(b.recentAcks, 6).map((x) => str(x, 30)))}
+Return JSON: {"ack":"...","question":"...","kind":"challenge"|"probe"|"extend"|"recall"|"clarify"}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { fast: true, temperature: 0.85, maxTokens: 300, timeout: 12000 });
   const q = str(data.question, 300).replace(/^["“]|["”]$/g, '');
   if (!q || q.split(/\s+/).length < 3) throw Object.assign(new Error('empty question'), { status: 502 });
-  return { question: q, kind: ['challenge', 'probe', 'extend', 'recall', 'clarify'].includes(data.kind) ? data.kind : 'probe', model };
+  let ack = str(data.ack, 40).replace(/^["“]|["”]$/g, '');
+  if (ack.split(/\s+/).length > 5 || /\b(great|excellent|good answer|well done|perfect|brilliant|wonderful)\b/i.test(ack)) ack = '';
+  if (ack && !/[.!?]$/.test(ack)) ack += '.';
+  return { question: q, ack, kind: ['challenge', 'probe', 'extend', 'recall', 'clarify'].includes(data.kind) ? data.kind : 'probe', model };
 }
 
 /* ---------------------------------------------------------------- speaking: shape the answer */
@@ -249,7 +265,7 @@ function shapeSpeaking(data, { typed, exam = 'IELTS', source }) {
 }
 
 const SPEAKING_OUTPUT = `Return ONLY this JSON:
-{"criteria":[{"key":"fluency","score":0-9 whole number,"observation":"2-3 sentences quoting evidence","practice":"one specific exercise"},{"key":"vocabulary",...},{"key":"grammar",...},{"key":"pronunciation","score":whole number or null,...}],
+{"criteria":[{"key":"fluency","observation":"2-3 sentences quoting evidence (write this FIRST, then decide the score)","score":3-9 whole number,"practice":"one specific exercise"},{"key":"vocabulary",...},{"key":"grammar",...},{"key":"pronunciation","observation":"...","score":whole number or null,...}],
 "summary":"3 sentences: overall level, the main reason, the most important next step",
 "sufficientEvidence":true|false,"confidence":"low"|"medium"|"high",
 "strengths":["specific, quoting the candidate"] (2-4),
@@ -268,6 +284,8 @@ async function judge(b, env) {
     seconds: Number(a?.seconds) || 0,
     words: Number(a?.words) || 0,
     confidence: a?.confidence == null ? null : Number(a.confidence),
+    delay: a?.delay == null || !Number.isFinite(Number(a.delay)) ? null : Math.round(Number(a.delay) * 10) / 10,
+    pauses: Number(a?.pauses) || 0,
   }));
   const spoken = answers.filter((a) => a.answer && a.answer !== '(No answer)');
   const typed = !!b.typed;
@@ -281,14 +299,20 @@ ${CALIBRATION}
 MEASURED FACTS (computed by the app, trust these):
 - Answers given: ${spoken.length}; total words: ${m.words ?? 'unknown'}; average words per answer: ${m.avgWords ?? 'unknown'}
 - Speaking rate: ${m.wpm ? m.wpm + ' words per minute' : 'not measured'}; filler words (um/uh/you know): ${m.fillers ?? 0}
+- Long pauses per minute: ${m.pausesPerMinute ?? 'not measured'}; average delay before answering: ${m.responseDelay != null ? m.responseDelay + ' s' : 'not measured'}
 - Speech-recognition confidence (0–1): ${m.confidence != null ? Number(m.confidence).toFixed(2) : 'not available'}
+- Linking words detected: ${arr(m.linking, 15).map((x) => str(x, 40)).join(', ') || 'none'}
+- Less common words detected: ${arr(m.lessCommonWords, 15).map((x) => str(x, 40)).join(', ') || 'none'}; idiomatic expressions: ${arr(m.idioms, 10).map((x) => str(x, 60)).join(', ') || 'none'}
+- Grammar structures detected: ${arr(m.structures, 20).map((x) => str(x, 40)).join(', ') || 'mostly simple'}
+- Possible slips flagged automatically (check them yourself): ${arr(m.likelySlips, 10).map((x) => str(x, 80)).join('; ') || 'none'}
+- Part 2 long turn: ${m.part2 ? `${Number(m.part2.words) || 0} words in ${Number(m.part2.sec) || 0} s` : 'not in this test'}
 - Answers were ${typed ? 'TYPED (so pronunciation must be null and fluency judged from organisation only)' : 'SPOKEN and transcribed automatically'}
 
 THE TEST (question → candidate's answer):
-${answers.map((a, i) => `#${i + 1} [${a.part}] Q: ${a.question}\nA: ${a.answer || '(no answer)'}${a.seconds ? ` (${Math.round(a.seconds)} s, ${a.words} words${a.confidence != null && a.confidence >= 0 ? `, recognition ${a.confidence.toFixed(2)}` : ''})` : ''}`).join('\n\n')}
+${answers.map((a, i) => `#${i + 1} [${a.part}] Q: ${a.question}\nA: ${a.answer || '(no answer)'}${a.seconds ? ` (${Math.round(a.seconds)} s, ${a.words} words${a.confidence != null && a.confidence >= 0 ? `, recognition ${a.confidence.toFixed(2)}` : ''}${a.delay != null ? `, started after ${a.delay} s` : ''}${a.pauses ? `, ${a.pauses} long pause${a.pauses === 1 ? '' : 's'}` : ''})` : ''}`).join('\n\n')}
 
 ${SPEAKING_OUTPUT}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 6000 });
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.35, maxTokens: 6000 });
   const assessment = shapeSpeaking(data, { typed, source: 'ai-transcript' });
   assessment.model = model;
   if (!typed && (m.confidence == null || m.confidence < 0))
@@ -345,7 +369,7 @@ Criteria (whole bands 1–9):
 - "lr" Lexical Resource: range, precision, collocation, less common vocabulary, spelling and word formation.
 - "gr" Grammatical Range & Accuracy: mix of simple and complex structures, proportion of error-free sentences, punctuation.
 
-Strictness: most candidates score 5–6.5. Under the word minimum: ${t1 ? 'Task Achievement' : 'Task Response'} is penalised (under ${t1 ? 150 : 250} words → max 5 for that criterion; under ${t1 ? 100 : 170} words → max 4). Memorised, off-topic or copied-prompt text is penalised. ${t1 ? 'No overview → Task Achievement max 5.' : 'No clear position when asked → Task Response max 5.'} Each criterion is judged independently.
+Use the full range 3–9 and judge only the evidence: weak scripts get 4 or below, strong ones 7–8, near-native ones 8.5–9. Criteria often differ by 1–2 bands. Under the word minimum: ${t1 ? 'Task Achievement' : 'Task Response'} is penalised (under ${t1 ? 150 : 250} words → max 5 for that criterion; under ${t1 ? 100 : 170} words → max 4). Memorised, off-topic or copied-prompt text is penalised. ${t1 ? 'No overview → Task Achievement max 5.' : 'No clear position when asked → Task Response max 5.'} Each criterion is judged independently.
 
 THE TASK:
 ${str(b.prompt, 3000)}
@@ -355,7 +379,7 @@ THE CANDIDATE'S RESPONSE (${words} words):
 """${response}"""
 
 Return ONLY this JSON:
-{"criteria":[{"key":"${t1 ? 'ta' : 'tr'}","score":n,"observation":"2-3 sentences with quotes","practice":"one specific next step"},{"key":"cc",...},{"key":"lr",...},{"key":"gr",...}],
+{"criteria":[{"key":"${t1 ? 'ta' : 'tr'}","observation":"2-3 sentences with quotes (write this first)","score":n,"practice":"one specific next step"},{"key":"cc",...},{"key":"lr",...},{"key":"gr",...}],
 "summary":"3 sentences","strengths":["..."] (2-4),"improvements":[{"issue":"...","action":"..."}] (2-4),
 "corrections":[{"excerpt":"exact text from the response","fix":"corrected text","why":"short reason","kind":"grammar"|"spelling"|"punctuation"|"vocabulary"}] (up to 12, real errors only),
 "rewrite":"an improved version of ONE weak sentence or paragraph from the response, at band 8 level",
@@ -431,6 +455,127 @@ Return ONLY this JSON:
   };
 }
 
+/* ---------------------------------------------------------------- cloud accounts (Cloudflare D1)
+   Accounts and progress are stored in a D1 database bound to this Worker as DB, so a learner
+   who deletes the app, changes phone or reinstalls can log in and get everything back.
+   Passwords are hashed with PBKDF2-SHA256 (100,000 rounds, random salt); session tokens are
+   random and only their SHA-256 hash is stored. */
+const SESSION_DAYS = 400;
+const MAX_DATA = 1_800_000;
+let schemaReady = false;
+const hex = (buf) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+const randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
+const sha256 = async (s) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+const fail = (status, code, message) => Object.assign(new Error(message || code), { status, code });
+const sameText = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+};
+async function pbkdf2(password, salt) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, key, 256);
+  return hex(bits);
+}
+async function database(env) {
+  if (!env.DB) throw fail(501, 'NO_DATABASE', 'Cloud accounts are not switched on for this server yet.');
+  if (!schemaReady) {
+    await env.DB.batch([
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, uid TEXT NOT NULL UNIQUE, name TEXT, salt TEXT NOT NULL, hash TEXT NOT NULL, created INTEGER, updated INTEGER, data TEXT, fails INTEGER DEFAULT 0, locked INTEGER DEFAULT 0)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS sessions (th TEXT PRIMARY KEY, uid TEXT NOT NULL, created INTEGER, expires INTEGER)'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS sessions_uid ON sessions(uid)'),
+    ]);
+    schemaReady = true;
+  }
+  return env.DB;
+}
+const cleanEmail = (e) => {
+  const v = str(e, 254).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) throw fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
+  return v;
+};
+const checkPassword = (p) => {
+  if (typeof p !== 'string' || p.length < 6) throw fail(400, 'WEAK_PASSWORD', 'Choose a password of at least 6 characters.');
+  if (p.length > 200) throw fail(400, 'WEAK_PASSWORD', 'That password is too long.');
+  return p;
+};
+async function newSession(DB, uid) {
+  const token = randomHex(32);
+  const now = Date.now();
+  await DB.prepare('INSERT INTO sessions (th, uid, created, expires) VALUES (?, ?, ?, ?)').bind(await sha256(token), uid, now, now + SESSION_DAYS * 864e5).run();
+  return token;
+}
+async function userFor(DB, token) {
+  if (typeof token !== 'string' || token.length !== 64) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
+  const s = await DB.prepare('SELECT uid, expires FROM sessions WHERE th = ?').bind(await sha256(token)).first();
+  if (!s || s.expires < Date.now()) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
+  const u = await DB.prepare('SELECT * FROM users WHERE uid = ?').bind(s.uid).first();
+  if (!u) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
+  return u;
+}
+const publicUser = (u, token) => ({ token, uid: u.uid, email: u.email, name: u.name || '', updated: u.updated || 0 });
+const checkData = (d) => {
+  const s = typeof d === 'string' ? d : JSON.stringify(d ?? null);
+  if (s.length > MAX_DATA) throw fail(413, 'TOO_LARGE', 'Your saved progress is too large to sync.');
+  return s;
+};
+
+async function account(action, b, env) {
+  const DB = await database(env);
+  const now = Date.now();
+  if (action === 'account.signup') {
+    const email = cleanEmail(b.email);
+    const password = checkPassword(b.password);
+    const name = str(b.name, 60);
+    if (await DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw fail(409, 'EMAIL_EXISTS', 'An account with this email already exists. Log in instead.');
+    const uid = 'c-' + randomHex(12);
+    const salt = randomHex(16);
+    const data = b.data == null ? null : checkData(b.data);
+    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(email, uid, name, salt, await pbkdf2(password, salt), now, data ? now : 0, data).run();
+    return { ...publicUser({ uid, email, name, updated: data ? now : 0 }, await newSession(DB, uid)), data: null, created: true };
+  }
+  if (action === 'account.login') {
+    const email = cleanEmail(b.email);
+    const password = checkPassword(b.password);
+    const u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+    if (!u) throw fail(404, 'NOT_FOUND', 'No account uses this email yet.');
+    if (u.locked && u.locked > now) throw fail(429, 'TOO_MANY_ATTEMPTS', 'Too many attempts. Please wait a few minutes and try again.');
+    if (!sameText(await pbkdf2(password, u.salt), u.hash)) {
+      const fails = (u.fails || 0) + 1;
+      await DB.prepare('UPDATE users SET fails = ?, locked = ? WHERE email = ?').bind(fails >= 8 ? 0 : fails, fails >= 8 ? now + 15 * 60e3 : 0, email).run();
+      throw fail(401, 'WRONG_PASSWORD', 'The email or password is incorrect.');
+    }
+    if (u.fails) await DB.prepare('UPDATE users SET fails = 0, locked = 0 WHERE email = ?').bind(email).run();
+    return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null };
+  }
+  const u = await userFor(DB, b.token);
+  if (action === 'account.pull') return { ...publicUser(u, undefined), data: u.data || null };
+  if (action === 'account.push') {
+    const data = checkData(b.data);
+    const name = b.name == null ? u.name : str(b.name, 60);
+    await DB.prepare('UPDATE users SET data = ?, updated = ?, name = ? WHERE uid = ?').bind(data, now, name, u.uid).run();
+    return { ok: true, updated: now };
+  }
+  if (action === 'account.logout') {
+    await DB.prepare('DELETE FROM sessions WHERE th = ?').bind(await sha256(b.token)).run();
+    return { ok: true };
+  }
+  if (action === 'account.password') {
+    if (!sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash)) throw fail(401, 'WRONG_PASSWORD', 'Your current password is incorrect.');
+    const salt = randomHex(16);
+    await DB.prepare('UPDATE users SET salt = ?, hash = ? WHERE uid = ?').bind(salt, await pbkdf2(checkPassword(b.newPassword), salt), u.uid).run();
+    return { ok: true };
+  }
+  if (action === 'account.delete') {
+    if (!sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash)) throw fail(401, 'WRONG_PASSWORD', 'Your password is incorrect.');
+    await DB.batch([DB.prepare('DELETE FROM sessions WHERE uid = ?').bind(u.uid), DB.prepare('DELETE FROM users WHERE uid = ?').bind(u.uid)]);
+    return { ok: true, deleted: true };
+  }
+  throw fail(400, 'UNKNOWN_ACTION', 'Unknown action');
+}
+
 /* ---------------------------------------------------------------- router */
 export default {
   async fetch(req, env) {
@@ -447,7 +592,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!ok) return json({ error: 'Origin not allowed' }, 403, cors);
     if (req.method === 'GET') {
-      return json({ ok: true, service: 'Testriq AI examiner', configured: !!env.GEMINI_KEY, models: SCORING_MODELS }, 200, cors);
+      return json({ ok: true, service: 'Testriq AI examiner', version: '1.0.2', configured: !!env.GEMINI_KEY, accounts: !!env.DB, models: SCORING_MODELS }, 200, cors);
     }
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
     try {
@@ -465,6 +610,7 @@ export default {
       } catch {
         return json({ error: 'Bad JSON' }, 400, cors);
       }
+      if (typeof b.action === 'string' && b.action.startsWith('account.')) return json(await account(b.action, b, env), 200, cors);
       switch (b.action) {
         case 'ping': {
           const r = await gemini(env, [{ text: 'Return {"ok":true}' }], { fast: true, maxTokens: 20, timeout: 15000 });
@@ -483,7 +629,7 @@ export default {
       }
     } catch (e) {
       const status = e.status || 500;
-      return json({ error: String(e.message || e).slice(0, 300) }, status, cors);
+      return json({ error: String(e.message || e).slice(0, 300), code: e.code || undefined }, status, cors);
     }
   },
 };

@@ -5,13 +5,18 @@
    See SETUP.md for step-by-step instructions.
    ===================================================================== */
 window.TESTRIQ_CONFIG = {
-  // 1) AI examiner — the URL of your Cloudflare Worker (worker.js).
+  // 1) AI examiner AND cloud accounts — the URL of your Cloudflare Worker (worker.js).
   //    Example: "https://testriq-ai.adibbhuiyann.workers.dev"
+  //    While this is empty the app marks speaking and writing on the phone (the live judge)
+  //    and keeps accounts on the phone (plus Android backup and backup files).
+  //    Fill it in to switch on the Gemini AI examiner and accounts that survive reinstalling
+  //    (SETUP.md steps 3 and 4).
   aiUrl: "",
 
-  // 2) Accounts — your Firebase project's Web API key and project ID
+  // 2) Optional: Firebase accounts (needed only for Google/Facebook sign-in).
+  //    Your Firebase project's Web API key and project ID
   //    (Firebase console → Project settings → General → Your apps → Web app).
-  //    Leave empty to use on-device accounts only (no Google/Facebook sign-in).
+  //    Leave empty to use the Testriq server's accounts (aiUrl above) instead.
   firebase: {
     apiKey: "",
     authDomain: "",   // e.g. "testriq-app.firebaseapp.com"

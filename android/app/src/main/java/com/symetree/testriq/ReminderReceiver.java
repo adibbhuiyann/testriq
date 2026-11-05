@@ -11,35 +11,46 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
-/** Shows the daily study reminder and restores it after a reboot or app update. */
+/** Shows study reminders and restores them after a reboot or app update. */
 public class ReminderReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent == null ? null : intent.getAction();
         if (Reminders.ACTION_NUDGE.equals(action)) {
-            post(context, 2000 + intent.getIntExtra("i", 0), intent.getStringExtra("title"), intent.getStringExtra("body"));
+            long at = intent.getLongExtra("at", 0);
+            if (!Reminders.wasDelivered(context, at)) {
+                post(context, 2000 + intent.getIntExtra("i", 0), intent.getStringExtra("title"), intent.getStringExtra("body"), at);
+            }
             return;
         }
-        if (Reminders.ACTION_FIRE.equals(action)) show(context);
+        if (Reminders.ACTION_FIRE.equals(action)) showDaily(context);
         Reminders.schedule(context);
+        NudgeJobService.schedule(context);
         if (!Reminders.ACTION_FIRE.equals(action)) Reminders.scheduleNudges(context); // after reboot / update
     }
 
-    private void show(Context c) {
+    /** The daily reminder; skipped when the learner has already practised today. */
+    static void showDaily(Context c) {
         SharedPreferences p = Reminders.prefs(c);
         if (!p.getBoolean("enabled", false)) return;
+        String today = Reminders.today();
+        if (today.equals(p.getString("dailyFired", ""))) return;
+        p.edit().putString("dailyFired", today).apply();
+        if (Reminders.practisedToday(c)) return;
         post(c, 1001, p.getString("title", "Time for today's practice"),
-                p.getString("body", "A focused 15 minutes keeps your band moving up."));
+                p.getString("body", "A focused 15 minutes keeps your band moving up."), 0);
     }
 
     @SuppressWarnings("deprecation")
-    private void post(Context c, int id, String title, String body) {
+    static void post(Context c, int id, String title, String body, long at) {
         if (title == null || title.isEmpty()) return;
         if (body == null) body = "";
         if (Build.VERSION.SDK_INT >= 33
                 && c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return;
         }
+        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null || !nm.areNotificationsEnabled()) return;
         Reminders.ensureChannel(c);
         Intent open = new Intent(c, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -54,8 +65,10 @@ public class ReminderReceiver extends BroadcastReceiver {
                 .setStyle(new Notification.BigTextStyle().bigText(body))
                 .setColor(0xFF3968F5)
                 .setAutoCancel(true)
+                .setShowWhen(true)
+                .setCategory(Notification.CATEGORY_REMINDER)
                 .setContentIntent(pi);
-        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(id, b.build());
+        nm.notify(id, b.build());
+        Reminders.markPosted(c, at);
     }
 }

@@ -1,7 +1,9 @@
 # Testriq — setup, Play Store and updates
 
 Everything below can be done from a phone browser. Do the steps in order.
-Steps 1–2 give you the app files. Steps 3–5 switch on the smart AI examiner and Google/Facebook sign-in. Step 6 puts the app on Google Play. Step 7 covers updates.
+Steps 1–2 give you the app files. Steps 3–4 switch on the Gemini AI examiner and cloud accounts (one free Cloudflare Worker does both). Step 5 is optional Google/Facebook sign-in. Step 6 puts the app on Google Play. Step 7 covers updates.
+
+> **Important:** until you finish steps 3 and 4 and put the Worker address in `config.js`, the app runs fully offline: speaking and writing are marked by the on-device live judge, and accounts live on the phone (protected by Android backup and backup files). The app works, but the Gemini examiner and "log in on any phone" need the Worker.
 
 ---
 
@@ -42,9 +44,26 @@ The AI examiner asks follow-up questions that challenge your answers in Part 1 a
 
 The worker automatically uses the newest Gemini Flash model your key can access. If one model is busy or over its free quota, it falls back to the next one.
 
-## 4. Turn on accounts and cloud sync (Firebase, free)
+## 4. Turn on cloud accounts (same Worker, free, 3 minutes)
 
-Until this is done, email accounts are saved only on the device, and the Google/Facebook buttons explain that they're "coming soon".
+This makes accounts and progress survive deleting the app, a new phone or a factory reset: the learner just logs in again.
+
+1. **dash.cloudflare.com → Storage & Databases → D1 SQL Database → Create**. Name it `testriq-users` → **Create**. (You don't need to create any tables; the Worker does it.)
+2. Open your `testriq-ai` Worker → **Bindings** (or **Settings → Bindings**) → **Add binding → D1 database**.
+   - Variable name: `DB`
+   - D1 database: `testriq-users` → **Add binding** / **Deploy**.
+3. Check it: open the Worker address in a browser. It should now show `"accounts": true`.
+4. Make sure `aiUrl` in `config.js` is your Worker address (step 3.6), then rebuild the app.
+
+What learners see: "Create an account" and "Log in with email" now save to the cloud. Anyone who already made an account on their phone gets a **Save online** button in Settings (and is moved online automatically the next time they log in). Passwords are stored only as salted PBKDF2 hashes.
+
+Password reset by email isn't available with Worker accounts (it needs an email service). If a learner forgets their password, Firebase (step 5) offers reset emails; otherwise they can contact support.
+
+Without this step, accounts are kept on the phone. They are still protected: the Android app copies them into the phone's Google backup (restored automatically when Testriq is reinstalled on the same Google account), and learners can save a **backup file** in Settings → Data & privacy and restore it from the login screen.
+
+## 5. Optional: Firebase accounts and Google/Facebook sign-in
+
+Only needed if you want the Google/Facebook buttons or password-reset emails. When Firebase is set up, it is used for accounts instead of the Worker.
 
 1. **console.firebase.google.com → Add project** → name `testriq` → create. You don't need Google Analytics.
 2. **Build → Authentication → Get started → Sign-in method**. Enable **Email/Password** and **Google**.
@@ -65,7 +84,7 @@ Until this is done, email accounts are saved only on the device, and the Google/
 
 Google sign-in now works on the website and in the app (it opens a secure Chrome tab, then returns to Testriq).
 
-## 5. Facebook sign-in (optional)
+### Facebook sign-in (optional)
 
 1. **developers.facebook.com → My Apps → Create app** → use case **Authenticate and request data from users with Facebook Login**.
 2. **App settings → Basic**: add the Privacy Policy URL `https://adibbhuiyann.github.io/testriq/privacy.html` and the User data deletion URL `https://adibbhuiyann.github.io/testriq/privacy.html#delete-account`. Copy the **App ID** and **App secret**.
@@ -99,9 +118,10 @@ Use **Play App Signing** (the default). Google then re-signs the app for users, 
 ## 7. Updating the app later
 
 1. Change the app on GitHub, for example `index.html`, `config.js`, the question banks or `android/…`.
-2. Open `android/version.properties` and raise `VERSION_NAME` (for example `1.0.0` → `1.0.1`). This is the version users see.
+2. Open `android/version.properties` and raise `VERSION_NAME` (for example `1.0.2` → `1.0.3`). This is the version users see.
 3. Commit to `main`. GitHub builds a new `.aab` automatically. The version code goes up by itself with every build, which Google Play requires.
 4. In Play Console, create a new release on the same track and upload the new `.aab`.
+5. If you changed `worker.js`, paste the new version into your Cloudflare Worker (**Edit code → Deploy**). The app works with the old Worker too, but the new one marks more accurately and adds cloud accounts.
 
 The website (GitHub Pages) uses the same `index.html`, so it updates at the same time.
 

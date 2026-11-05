@@ -57,14 +57,16 @@ public class MainActivity extends Activity {
     private static final int REQ_FILE = 41;
     static final int REQ_MIC = 42;
     static final int REQ_NOTIFY = 43;
+    private static final int REQ_SAVE = 44;
 
-    private static final int LIGHT_BG = 0xFFF4F6FB;
+    private static final int LIGHT_BG = 0xFFE9EBEF;
     private static final int DARK_BG = 0xFF0D1221;
     private static final int SPLASH_BG = 0xFF0B1230;
 
     WebView web;
     private FrameLayout root;
     private ValueCallback<Uri[]> fileCallback;
+    private String pendingSaveText;
     private PermissionRequest pendingWebPermission;
     SpeechBridge speech;
     NativeBridge bridge;
@@ -116,6 +118,7 @@ public class MainActivity extends Activity {
         setupInsets();
         setupBack();
         handleIntent(getIntent());
+        NudgeJobService.schedule(this);
         web.loadUrl(START_URL);
     }
 
@@ -166,7 +169,7 @@ public class MainActivity extends Activity {
                 c.setSystemBarsAppearance(dark ? 0 : mask, mask);
             }
         } else {
-            int surface = dark ? 0xFF151D31 : 0xFFFFFFFF;
+            int surface = dark ? 0xFF151D31 : 0xFFEEF0F3;
             w.setStatusBarColor(surface);
             if (Build.VERSION.SDK_INT >= 27) w.setNavigationBarColor(surface);
             View decor = w.getDecorView();
@@ -425,9 +428,51 @@ public class MainActivity extends Activity {
     void requestNotifications() {
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            boolean askedBefore = Reminders.prefs(this).getBoolean("notifAsked", false);
+            if (askedBefore && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                // Android no longer shows the dialog after two refusals: open the settings page instead.
+                openNotificationSettings();
+                return;
+            }
+            Reminders.prefs(this).edit().putBoolean("notifAsked", true).apply();
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
-        } else {
-            js("window.testriqPermission&&window.testriqPermission('notifications',true)");
+            return;
+        }
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        if (nm != null && !nm.areNotificationsEnabled()) {
+            openNotificationSettings();
+            return;
+        }
+        js("window.testriqPermission&&window.testriqPermission('notifications',true)");
+    }
+
+    void openNotificationSettings() {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** Asks where to save a file, then writes the text there (see onActivityResult). */
+    void saveFile(String name, String mime, String text) {
+        pendingSaveText = text;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(mime == null || mime.isEmpty() ? "application/json" : mime)
+                .putExtra(Intent.EXTRA_TITLE, name == null || name.isEmpty() ? "testriq-backup.json" : name);
+        try {
+            startActivityForResult(i, REQ_SAVE);
+        } catch (ActivityNotFoundException e) {
+            pendingSaveText = null;
+            js("window.testriqFileSaved&&window.testriqFileSaved(false)");
         }
     }
 
@@ -456,7 +501,7 @@ public class MainActivity extends Activity {
         Bundle extras = new Bundle();
         extras.putBinder("android.support.customtabs.extra.SESSION", null);
         i.putExtras(extras);
-        i.putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", darkTheme ? 0xFF151D31 : 0xFFFFFFFF);
+        i.putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", darkTheme ? 0xFF151D31 : 0xFFEEF0F3);
         i.putExtra("androidx.browser.customtabs.extra.SHARE_STATE", 2);
         i.putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 1);
         try {
@@ -535,6 +580,26 @@ public class MainActivity extends Activity {
         if (requestCode == REQ_FILE && fileCallback != null) {
             fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             fileCallback = null;
+        } else if (requestCode == REQ_SAVE) {
+            final String text = pendingSaveText;
+            pendingSaveText = null;
+            final Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (uri == null || text == null) {
+                js("window.testriqFileSaved&&window.testriqFileSaved(false)");
+                return;
+            }
+            new Thread(() -> {
+                boolean ok = false;
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    if (out != null) {
+                        out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        ok = true;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Could not save file", e);
+                }
+                js("window.testriqFileSaved&&window.testriqFileSaved(" + ok + ")");
+            }).start();
         }
     }
 
@@ -562,6 +627,7 @@ public class MainActivity extends Activity {
         if (speech != null) speech.pauseAll();
         if (web != null) web.onPause();
         resumedNow = false;
+        Reminders.prefs(this).edit().putBoolean("foreground", false).apply();
         // Reminders only go out while the app is closed.
         Reminders.scheduleNudges(this);
     }
@@ -572,6 +638,10 @@ public class MainActivity extends Activity {
         resumedNow = true;
         if (web != null) web.onResume();
         Reminders.cancelNudges(this);
+        Reminders.markOpened(this);
+        Reminders.prefs(this).edit().putBoolean("foreground", true).putLong("foregroundAt", System.currentTimeMillis()).apply();
+        // the learner may have just switched notifications on in Settings
+        js("window.TQ&&TQ.onAppResume&&TQ.onAppResume()");
     }
 
     @Override
