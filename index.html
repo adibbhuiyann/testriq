@@ -335,6 +335,16 @@ html[data-accent=violet]{--blue:#7959ed;--acc1:#7959ed;--acc2:#b05cf0}
 html[data-accent=teal]{--blue:#0f9fae;--acc1:#0f9fae;--acc2:#2f7de1}
 html[data-accent=rose]{--blue:#e0457b;--acc1:#e0457b;--acc2:#f0814a}
 html[data-accent=amber]{--blue:#c27c0e;--acc1:#d98a0b;--acc2:#e0457b}
+html[data-accent=indigo]{--blue:#4f46e5;--acc1:#4f46e5;--acc2:#7c3aed}
+html[data-accent=purple]{--blue:#9333ea;--acc1:#9333ea;--acc2:#db2777}
+html[data-accent=pink]{--blue:#db2777;--acc1:#db2777;--acc2:#f97316}
+html[data-accent=red]{--blue:#dc2626;--acc1:#dc2626;--acc2:#f97316}
+html[data-accent=orange]{--blue:#ea580c;--acc1:#ea580c;--acc2:#e11d48}
+html[data-accent=lime]{--blue:#4d7c0f;--acc1:#65a30d;--acc2:#0d9488}
+html[data-accent=green]{--blue:#16a34a;--acc1:#16a34a;--acc2:#0891b2}
+html[data-accent=emerald]{--blue:#059669;--acc1:#059669;--acc2:#2563eb}
+html[data-accent=sky]{--blue:#0284c7;--acc1:#0284c7;--acc2:#6366f1}
+html[data-accent=graphite]{--blue:#475569;--acc1:#334155;--acc2:#64748b}
 .primary{background:linear-gradient(100deg,var(--acc1),var(--acc2))}
 .btn.danger{background:#d64e62;color:#fff;box-shadow:0 6px 15px #d64e6230}
 .pill.good{color:var(--good);background:#118b6414}
@@ -576,7 +586,11 @@ dialog#practice[open]::backdrop{animation:fadeIn .3s ease}
 .seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px;flex-wrap:wrap}
 .seg button{border:0;background:none;color:var(--muted);font-weight:750;font-size:.74rem;padding:7px 10px;border-radius:9px;cursor:pointer}
 .seg button.on{background:var(--surface);color:var(--blue);box-shadow:0 2px 8px #18285a14}
-.swatches{display:flex;gap:8px}
+.swatches{display:flex;gap:10px;flex-wrap:wrap}
+.swatch.custom{position:relative;background:conic-gradient(#f43f5e,#f59e0b,#84cc16,#10b981,#06b6d4,#6366f1,#d946ef,#f43f5e);overflow:hidden;display:grid;place-items:center}
+.swatch.custom:after{content:"+";color:#fff;font-weight:900;font-size:1rem;text-shadow:0 1px 3px #0008;pointer-events:none}
+.swatch.custom.on{background:var(--c)}
+.swatch.custom input{position:absolute;inset:-6px;opacity:0;width:calc(100% + 12px);height:calc(100% + 12px);cursor:pointer;border:0;padding:0}
 .swatch{width:28px;height:28px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);cursor:pointer}
 .swatch.on{box-shadow:0 0 0 2px var(--c)}
 .s-adv{padding:6px 0 10px;border-top:1px solid var(--line);font-size:.8rem}
@@ -643,7 +657,7 @@ html.native-app *::-webkit-scrollbar{display:none}
 html.native-app button,html.native-app [role=button],html.native-app a{cursor:default}
 
 </style></head><body>
-<div id="splash" aria-label="Testriq is opening"><div class="splash-inner"><div class="splash-word"><svg class="" xmlns="http://www.w3.org/2000/svg" viewBox="-2.0 -90.6 334.3 113.0" role="img" aria-label="Testriq"><defs><linearGradient id="tqtkS" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><path d="M3.22265625 -58.69140625H25.244140625V0.0H42.431640625V-58.69140625H64.453125V-72.75390625H3.22265625Z M94.23046875 1.025390625C107.462890625 1.025390625 116.3984375 -4.98046875 119.1328125 -14.453125L103.947265625 -16.943359375C102.580078125 -13.28125 99.11328125 -11.328125 94.5234375 -11.328125C88.078125 -11.328125 83.732421875 -15.234375 83.439453125 -23.14453125H119.9140625V-27.44140625C119.9140625 -45.458984375 108.927734375 -55.2734375 93.595703125 -55.2734375C77.189453125 -55.2734375 66.69140625 -43.9453125 66.69140625 -27.099609375C66.69140625 -9.619140625 77.091796875 1.025390625 94.23046875 1.025390625ZM83.537109375 -33.056640625C84.171875 -39.0625 87.736328125 -42.919921875 93.7421875 -42.919921875C99.69921875 -42.919921875 103.068359375 -39.2578125 103.751953125 -33.056640625Z M147.34765625 1.025390625C162.240234375 1.025390625 172.93359375 -6.201171875 172.93359375 -17.431640625C172.93359375 -25.341796875 167.708984375 -30.126953125 156.869140625 -32.177734375L146.419921875 -34.130859375C141.732421875 -35.05859375 140.267578125 -36.767578125 140.267578125 -38.96484375C140.267578125 -41.748046875 143.490234375 -43.5546875 147.591796875 -43.5546875C152.181640625 -43.5546875 155.306640625 -41.40625 156.33203125 -37.744140625L171.37109375 -40.13671875C169.466796875 -49.51171875 160.970703125 -55.2734375 147.298828125 -55.2734375C132.650390625 -55.2734375 123.275390625 -48.828125 123.275390625 -37.939453125C123.275390625 -29.58984375 128.646484375 -24.267578125 139.4375 -22.216796875L148.958984375 -20.361328125C153.5 -19.43359375 155.6484375 -18.017578125 155.6484375 -15.478515625C155.6484375 -12.6953125 152.767578125 -10.9375 147.982421875 -10.9375C142.171875 -10.9375 139.095703125 -13.37890625 137.728515625 -18.115234375L121.908203125 -15.625C123.8125 -5.17578125 133.3828125 1.025390625 147.34765625 1.025390625Z M206.6171875 -54.58984375H196.802734375V-67.578125H179.76171875V-54.58984375H172.53515625V-41.943359375H179.76171875V-15.185546875C179.76171875 -4.78515625 185.865234375 0.78125 197.4375 0.78125C200.66015625 0.78125 204.2734375 0.439453125 208.08203125 -0.634765625L205.884765625 -13.037109375C204.95703125 -12.79296875 202.3203125 -12.451171875 201.1484375 -12.451171875C198.072265625 -12.451171875 196.802734375 -13.818359375 196.802734375 -16.69921875V-41.943359375H206.6171875Z M210.857421875 0.0H227.8984375V-29.78515625C227.8984375 -36.328125 232.537109375 -40.72265625 238.8359375 -40.72265625C240.88671875 -40.72265625 243.962890625 -40.380859375 245.57421875 -39.84375V-54.6875C244.158203125 -55.029296875 242.3515625 -55.2734375 240.740234375 -55.2734375C234.734375 -55.2734375 229.94921875 -51.806640625 227.99609375 -44.62890625H227.41015625V-54.58984375H210.857421875Z M248.349609375 0.0H265.390625V-54.58984375H248.349609375Z M324.66015625 20.41015625V-54.58984375H307.86328125V-45.21484375H307.27734375C305.2265625 -50.146484375 300.5390625 -55.2734375 291.798828125 -55.2734375C280.32421875 -55.2734375 270.0703125 -46.38671875 270.0703125 -27.24609375C270.0703125 -8.740234375 279.787109375 0.78125 291.9453125 0.78125C300.24609375 0.78125 305.12890625 -3.90625 307.27734375 -8.837890625H307.66796875V20.41015625ZM297.755859375 -12.5C291.1640625 -12.5 287.599609375 -18.359375 287.599609375 -27.24609375C287.599609375 -36.1328125 291.1640625 -41.943359375 297.755859375 -41.943359375C304.25 -41.943359375 308.05859375 -36.279296875 308.05859375 -27.24609375C308.05859375 -18.310546875 304.201171875 -12.5 297.755859375 -12.5Z" fill="#f3f5ff"/><circle cx="256.87" cy="-75.09" r="13.50" fill="url(#tqtkS)"/><path d="M249.00 -74.53L254.06 -69.46L264.75 -80.15" fill="none" stroke="#fff" stroke-width="3.82" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="splash-tag">IELTS · SAT · PTE</p><p>BY SYMETREE</p><span class="loading" aria-hidden="true"></span><small>Preparing your next step</small></div></div><script>document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){var s=document.getElementById("splash");if(s){s.classList.add("out");setTimeout(function(){s.remove()},600)}},900)})</script>
+<div id="splash" aria-label="Testriq is opening"><div class="splash-inner"><div class="splash-word"><svg class="" xmlns="http://www.w3.org/2000/svg" viewBox="-2.0 -90.6 334.3 113.0" role="img" aria-label="Testriq"><defs><linearGradient id="tqtkS" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><path d="M3.22265625 -58.69140625H25.244140625V0.0H42.431640625V-58.69140625H64.453125V-72.75390625H3.22265625Z M94.23046875 1.025390625C107.462890625 1.025390625 116.3984375 -4.98046875 119.1328125 -14.453125L103.947265625 -16.943359375C102.580078125 -13.28125 99.11328125 -11.328125 94.5234375 -11.328125C88.078125 -11.328125 83.732421875 -15.234375 83.439453125 -23.14453125H119.9140625V-27.44140625C119.9140625 -45.458984375 108.927734375 -55.2734375 93.595703125 -55.2734375C77.189453125 -55.2734375 66.69140625 -43.9453125 66.69140625 -27.099609375C66.69140625 -9.619140625 77.091796875 1.025390625 94.23046875 1.025390625ZM83.537109375 -33.056640625C84.171875 -39.0625 87.736328125 -42.919921875 93.7421875 -42.919921875C99.69921875 -42.919921875 103.068359375 -39.2578125 103.751953125 -33.056640625Z M147.34765625 1.025390625C162.240234375 1.025390625 172.93359375 -6.201171875 172.93359375 -17.431640625C172.93359375 -25.341796875 167.708984375 -30.126953125 156.869140625 -32.177734375L146.419921875 -34.130859375C141.732421875 -35.05859375 140.267578125 -36.767578125 140.267578125 -38.96484375C140.267578125 -41.748046875 143.490234375 -43.5546875 147.591796875 -43.5546875C152.181640625 -43.5546875 155.306640625 -41.40625 156.33203125 -37.744140625L171.37109375 -40.13671875C169.466796875 -49.51171875 160.970703125 -55.2734375 147.298828125 -55.2734375C132.650390625 -55.2734375 123.275390625 -48.828125 123.275390625 -37.939453125C123.275390625 -29.58984375 128.646484375 -24.267578125 139.4375 -22.216796875L148.958984375 -20.361328125C153.5 -19.43359375 155.6484375 -18.017578125 155.6484375 -15.478515625C155.6484375 -12.6953125 152.767578125 -10.9375 147.982421875 -10.9375C142.171875 -10.9375 139.095703125 -13.37890625 137.728515625 -18.115234375L121.908203125 -15.625C123.8125 -5.17578125 133.3828125 1.025390625 147.34765625 1.025390625Z M206.6171875 -54.58984375H196.802734375V-67.578125H179.76171875V-54.58984375H172.53515625V-41.943359375H179.76171875V-15.185546875C179.76171875 -4.78515625 185.865234375 0.78125 197.4375 0.78125C200.66015625 0.78125 204.2734375 0.439453125 208.08203125 -0.634765625L205.884765625 -13.037109375C204.95703125 -12.79296875 202.3203125 -12.451171875 201.1484375 -12.451171875C198.072265625 -12.451171875 196.802734375 -13.818359375 196.802734375 -16.69921875V-41.943359375H206.6171875Z M210.857421875 0.0H227.8984375V-29.78515625C227.8984375 -36.328125 232.537109375 -40.72265625 238.8359375 -40.72265625C240.88671875 -40.72265625 243.962890625 -40.380859375 245.57421875 -39.84375V-54.6875C244.158203125 -55.029296875 242.3515625 -55.2734375 240.740234375 -55.2734375C234.734375 -55.2734375 229.94921875 -51.806640625 227.99609375 -44.62890625H227.41015625V-54.58984375H210.857421875Z M248.349609375 0.0H265.390625V-54.58984375H248.349609375Z M324.66015625 20.41015625V-54.58984375H307.86328125V-45.21484375H307.27734375C305.2265625 -50.146484375 300.5390625 -55.2734375 291.798828125 -55.2734375C280.32421875 -55.2734375 270.0703125 -46.38671875 270.0703125 -27.24609375C270.0703125 -8.740234375 279.787109375 0.78125 291.9453125 0.78125C300.24609375 0.78125 305.12890625 -3.90625 307.27734375 -8.837890625H307.66796875V20.41015625ZM297.755859375 -12.5C291.1640625 -12.5 287.599609375 -18.359375 287.599609375 -27.24609375C287.599609375 -36.1328125 291.1640625 -41.943359375 297.755859375 -41.943359375C304.25 -41.943359375 308.05859375 -36.279296875 308.05859375 -27.24609375C308.05859375 -18.310546875 304.201171875 -12.5 297.755859375 -12.5Z" fill="#f3f5ff"/><circle cx="256.87" cy="-75.09" r="13.50" fill="url(#tqtkS)"/><path d="M249.00 -74.53L254.06 -69.46L264.75 -80.15" fill="none" stroke="#fff" stroke-width="3.82" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="splash-tag">IELTS · SAT · PTE</p><p>BY SYMETREE</p><span class="loading" aria-hidden="true"></span><small>Preparing your next step</small></div></div><script>document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){var s=document.getElementById("splash");if(s){s.classList.add("out");setTimeout(function(){s.remove();window.TQSplashDone&&TQSplashDone()},600)}},2300)})</script>
 <section id="welcome" class="welcome" hidden aria-label="Welcome to Testriq"><div class="wl-bg" aria-hidden="true"><i></i><i></i><i></i></div><div class="wl-grid" aria-hidden="true"></div><div class="wl-inner"><div class="wl-brand"><span class="wl-word"><svg class="" xmlns="http://www.w3.org/2000/svg" viewBox="-2.0 -90.6 334.3 113.0" role="img" aria-label="Testriq"><defs><linearGradient id="tqtkW" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><path d="M3.22265625 -58.69140625H25.244140625V0.0H42.431640625V-58.69140625H64.453125V-72.75390625H3.22265625Z M94.23046875 1.025390625C107.462890625 1.025390625 116.3984375 -4.98046875 119.1328125 -14.453125L103.947265625 -16.943359375C102.580078125 -13.28125 99.11328125 -11.328125 94.5234375 -11.328125C88.078125 -11.328125 83.732421875 -15.234375 83.439453125 -23.14453125H119.9140625V-27.44140625C119.9140625 -45.458984375 108.927734375 -55.2734375 93.595703125 -55.2734375C77.189453125 -55.2734375 66.69140625 -43.9453125 66.69140625 -27.099609375C66.69140625 -9.619140625 77.091796875 1.025390625 94.23046875 1.025390625ZM83.537109375 -33.056640625C84.171875 -39.0625 87.736328125 -42.919921875 93.7421875 -42.919921875C99.69921875 -42.919921875 103.068359375 -39.2578125 103.751953125 -33.056640625Z M147.34765625 1.025390625C162.240234375 1.025390625 172.93359375 -6.201171875 172.93359375 -17.431640625C172.93359375 -25.341796875 167.708984375 -30.126953125 156.869140625 -32.177734375L146.419921875 -34.130859375C141.732421875 -35.05859375 140.267578125 -36.767578125 140.267578125 -38.96484375C140.267578125 -41.748046875 143.490234375 -43.5546875 147.591796875 -43.5546875C152.181640625 -43.5546875 155.306640625 -41.40625 156.33203125 -37.744140625L171.37109375 -40.13671875C169.466796875 -49.51171875 160.970703125 -55.2734375 147.298828125 -55.2734375C132.650390625 -55.2734375 123.275390625 -48.828125 123.275390625 -37.939453125C123.275390625 -29.58984375 128.646484375 -24.267578125 139.4375 -22.216796875L148.958984375 -20.361328125C153.5 -19.43359375 155.6484375 -18.017578125 155.6484375 -15.478515625C155.6484375 -12.6953125 152.767578125 -10.9375 147.982421875 -10.9375C142.171875 -10.9375 139.095703125 -13.37890625 137.728515625 -18.115234375L121.908203125 -15.625C123.8125 -5.17578125 133.3828125 1.025390625 147.34765625 1.025390625Z M206.6171875 -54.58984375H196.802734375V-67.578125H179.76171875V-54.58984375H172.53515625V-41.943359375H179.76171875V-15.185546875C179.76171875 -4.78515625 185.865234375 0.78125 197.4375 0.78125C200.66015625 0.78125 204.2734375 0.439453125 208.08203125 -0.634765625L205.884765625 -13.037109375C204.95703125 -12.79296875 202.3203125 -12.451171875 201.1484375 -12.451171875C198.072265625 -12.451171875 196.802734375 -13.818359375 196.802734375 -16.69921875V-41.943359375H206.6171875Z M210.857421875 0.0H227.8984375V-29.78515625C227.8984375 -36.328125 232.537109375 -40.72265625 238.8359375 -40.72265625C240.88671875 -40.72265625 243.962890625 -40.380859375 245.57421875 -39.84375V-54.6875C244.158203125 -55.029296875 242.3515625 -55.2734375 240.740234375 -55.2734375C234.734375 -55.2734375 229.94921875 -51.806640625 227.99609375 -44.62890625H227.41015625V-54.58984375H210.857421875Z M248.349609375 0.0H265.390625V-54.58984375H248.349609375Z M324.66015625 20.41015625V-54.58984375H307.86328125V-45.21484375H307.27734375C305.2265625 -50.146484375 300.5390625 -55.2734375 291.798828125 -55.2734375C280.32421875 -55.2734375 270.0703125 -46.38671875 270.0703125 -27.24609375C270.0703125 -8.740234375 279.787109375 0.78125 291.9453125 0.78125C300.24609375 0.78125 305.12890625 -3.90625 307.27734375 -8.837890625H307.66796875V20.41015625ZM297.755859375 -12.5C291.1640625 -12.5 287.599609375 -18.359375 287.599609375 -27.24609375C287.599609375 -36.1328125 291.1640625 -41.943359375 297.755859375 -41.943359375C304.25 -41.943359375 308.05859375 -36.279296875 308.05859375 -27.24609375C308.05859375 -18.310546875 304.201171875 -12.5 297.755859375 -12.5Z" fill="#f3f5ff"/><circle cx="256.87" cy="-75.09" r="13.50" fill="url(#tqtkW)"/><path d="M249.00 -74.53L254.06 -69.46L264.75 -80.15" fill="none" stroke="#fff" stroke-width="3.82" stroke-linecap="round" stroke-linejoin="round"/></svg></span><small>BY SYMETREE</small></div><div class="wl-hero"><span class="wl-kicker">IELTS · SAT · PTE</span><h1>Prepare with an examiner who <em>really listens</em>.</h1><p>Live speaking interviews, band-level feedback on every criterion and a daily plan built around your target score.</p><ul class="wl-points"><li><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg></span>A live speaking examiner with two voices</li><li><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>Band estimates for every IELTS criterion</li><li><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>Daily goals and a weekly band report</li></ul></div><div class="wl-card" id="wlCard"></div><p class="wl-legal">By continuing, you agree to our <button type="button" class="wl-inline" data-open="privacy">Privacy Policy</button>.</p></div></section>
 
 <header><button class="brand" data-nav="home"><span class="brandword"><svg class="" xmlns="http://www.w3.org/2000/svg" viewBox="-2.0 -90.6 334.3 113.0" role="img" aria-label="Testriq"><defs><linearGradient id="tqtkH" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><path d="M3.22265625 -58.69140625H25.244140625V0.0H42.431640625V-58.69140625H64.453125V-72.75390625H3.22265625Z M94.23046875 1.025390625C107.462890625 1.025390625 116.3984375 -4.98046875 119.1328125 -14.453125L103.947265625 -16.943359375C102.580078125 -13.28125 99.11328125 -11.328125 94.5234375 -11.328125C88.078125 -11.328125 83.732421875 -15.234375 83.439453125 -23.14453125H119.9140625V-27.44140625C119.9140625 -45.458984375 108.927734375 -55.2734375 93.595703125 -55.2734375C77.189453125 -55.2734375 66.69140625 -43.9453125 66.69140625 -27.099609375C66.69140625 -9.619140625 77.091796875 1.025390625 94.23046875 1.025390625ZM83.537109375 -33.056640625C84.171875 -39.0625 87.736328125 -42.919921875 93.7421875 -42.919921875C99.69921875 -42.919921875 103.068359375 -39.2578125 103.751953125 -33.056640625Z M147.34765625 1.025390625C162.240234375 1.025390625 172.93359375 -6.201171875 172.93359375 -17.431640625C172.93359375 -25.341796875 167.708984375 -30.126953125 156.869140625 -32.177734375L146.419921875 -34.130859375C141.732421875 -35.05859375 140.267578125 -36.767578125 140.267578125 -38.96484375C140.267578125 -41.748046875 143.490234375 -43.5546875 147.591796875 -43.5546875C152.181640625 -43.5546875 155.306640625 -41.40625 156.33203125 -37.744140625L171.37109375 -40.13671875C169.466796875 -49.51171875 160.970703125 -55.2734375 147.298828125 -55.2734375C132.650390625 -55.2734375 123.275390625 -48.828125 123.275390625 -37.939453125C123.275390625 -29.58984375 128.646484375 -24.267578125 139.4375 -22.216796875L148.958984375 -20.361328125C153.5 -19.43359375 155.6484375 -18.017578125 155.6484375 -15.478515625C155.6484375 -12.6953125 152.767578125 -10.9375 147.982421875 -10.9375C142.171875 -10.9375 139.095703125 -13.37890625 137.728515625 -18.115234375L121.908203125 -15.625C123.8125 -5.17578125 133.3828125 1.025390625 147.34765625 1.025390625Z M206.6171875 -54.58984375H196.802734375V-67.578125H179.76171875V-54.58984375H172.53515625V-41.943359375H179.76171875V-15.185546875C179.76171875 -4.78515625 185.865234375 0.78125 197.4375 0.78125C200.66015625 0.78125 204.2734375 0.439453125 208.08203125 -0.634765625L205.884765625 -13.037109375C204.95703125 -12.79296875 202.3203125 -12.451171875 201.1484375 -12.451171875C198.072265625 -12.451171875 196.802734375 -13.818359375 196.802734375 -16.69921875V-41.943359375H206.6171875Z M210.857421875 0.0H227.8984375V-29.78515625C227.8984375 -36.328125 232.537109375 -40.72265625 238.8359375 -40.72265625C240.88671875 -40.72265625 243.962890625 -40.380859375 245.57421875 -39.84375V-54.6875C244.158203125 -55.029296875 242.3515625 -55.2734375 240.740234375 -55.2734375C234.734375 -55.2734375 229.94921875 -51.806640625 227.99609375 -44.62890625H227.41015625V-54.58984375H210.857421875Z M248.349609375 0.0H265.390625V-54.58984375H248.349609375Z M324.66015625 20.41015625V-54.58984375H307.86328125V-45.21484375H307.27734375C305.2265625 -50.146484375 300.5390625 -55.2734375 291.798828125 -55.2734375C280.32421875 -55.2734375 270.0703125 -46.38671875 270.0703125 -27.24609375C270.0703125 -8.740234375 279.787109375 0.78125 291.9453125 0.78125C300.24609375 0.78125 305.12890625 -3.90625 307.27734375 -8.837890625H307.66796875V20.41015625ZM297.755859375 -12.5C291.1640625 -12.5 287.599609375 -18.359375 287.599609375 -27.24609375C287.599609375 -36.1328125 291.1640625 -41.943359375 297.755859375 -41.943359375C304.25 -41.943359375 308.05859375 -36.279296875 308.05859375 -27.24609375C308.05859375 -18.310546875 304.201171875 -12.5 297.755859375 -12.5Z" fill="currentColor"/><circle cx="256.87" cy="-75.09" r="13.50" fill="url(#tqtkH)"/><path d="M249.00 -74.53L254.06 -69.46L264.75 -80.15" fill="none" stroke="#fff" stroke-width="3.82" stroke-linecap="round" stroke-linejoin="round"/></svg><small>BY SYMETREE</small></span></button><div class="actions"><button class="iconbtn" id="soundQuick" aria-label="Toggle ambient sound">♫</button><button class="iconbtn" id="themeQuick" aria-label="Toggle theme">◐</button><button class="iconbtn" data-nav="settings" aria-label="Settings" title="Settings">⚙</button><button class="avatar" id="avatar" data-nav="profile" aria-label="Open profile">L</button></div></header>
@@ -3259,6 +3273,9 @@ apply();render();
     reminderTime: "19:00",
     goalPlan: null,
     weekly: [],
+    nudges: true,
+    notifAsked: false,
+    accentCustom: "#3968f5",
   };
   for (const [k, v] of Object.entries(EXTRA)) {
     if (state[k] === undefined) state[k] = Array.isArray(v) ? [] : v;
@@ -3278,7 +3295,8 @@ apply();render();
     root.classList.toggle("native-app", NATIVE);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = state.theme === "dark" ? "#0d1221" : "#ffffff";
-    TQNative.call("setTheme", state.theme === "dark");
+    TQNative.call("setTheme", barsDark());
+    applyAccent();
     if (SP) {
       try {
         SP.setRate(Number(state.voiceRate) || 1);
@@ -3301,6 +3319,37 @@ apply();render();
       );
     }
   };
+  function barsDark() {
+    const w = document.getElementById("welcome");
+    return !!document.getElementById("splash") || (w && !w.hidden) || state.theme === "dark";
+  }
+  TQ.barsDark = barsDark;
+  window.TQSplashDone = () => {
+    TQNative.call("setTheme", barsDark());
+    maybeAskNotifications();
+  };
+  /* ---- accent colours (presets + custom) ---- */
+  const hexToHsl = (hex) => {
+    const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    let h = 0, sat = 0;
+    if (mx !== mn) {
+      const d = mx - mn;
+      sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+    }
+    return [h, sat * 100, l * 100];
+  };
+  function applyAccent() {
+    const st = document.documentElement.style;
+    if (state.accent === "custom" && /^#[0-9a-f]{6}$/i.test(state.accentCustom || "")) {
+      const [h, sa, l] = hexToHsl(state.accentCustom);
+      st.setProperty("--blue", state.accentCustom);
+      st.setProperty("--acc1", state.accentCustom);
+      st.setProperty("--acc2", `hsl(${(h + 32) % 360} ${Math.min(90, sa + 5)}% ${Math.min(65, l + 6)}%)`);
+    } else ["--blue", "--acc1", "--acc2"].forEach((k) => st.removeProperty(k));
+  }
   if (mq && mq.addEventListener)
     mq.addEventListener("change", () => {
       if (state.themeMode === "system") apply();
@@ -3309,6 +3358,7 @@ apply();render();
   window.save = function () {
     const ok = baseSave();
     Cloud.schedule();
+    if (TQ.queueNudges) TQ.queueNudges();
     return ok;
   };
   $("#themeQuick").onclick = () => {
@@ -3730,6 +3780,7 @@ apply();render();
     welcome.hidden = false;
     welcome.classList.remove("out");
     document.documentElement.classList.add("tq-locked");
+    TQNative.call("setTheme", true);
   }
   function hideWelcome() {
     if (!welcome || welcome.hidden) return;
@@ -3738,6 +3789,8 @@ apply();render();
     setTimeout(() => {
       welcome.hidden = true;
       welcome.classList.remove("out");
+      TQNative.call("setTheme", barsDark());
+      maybeAskNotifications();
     }, 520);
   }
   TQ.showWelcome = showWelcome;
@@ -3898,6 +3951,7 @@ ${up ? "" : `<button type="button" class="wl-link wl-forgot" data-wl="reset">For
       render();
       TQNative.haptic("success");
       notify(`Target set: ${PLANS[target].label}. Your first daily goal is ready.`);
+      setTimeout(maybeAskNotifications, 1800);
     },
     dayIndex(p = Goal.plan()) {
       return p ? diffDays(p.start, dayKey()) : 0;
@@ -4530,6 +4584,12 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
       return null;
     }
   }
+  const ACCENTS = [
+    ["blue", "#3968f5", "Blue"], ["indigo", "#4f46e5", "Indigo"], ["violet", "#7959ed", "Violet"], ["purple", "#9333ea", "Purple"],
+    ["pink", "#db2777", "Pink"], ["rose", "#e0457b", "Rose"], ["red", "#dc2626", "Red"], ["orange", "#ea580c", "Orange"],
+    ["amber", "#d98a0b", "Amber"], ["lime", "#65a30d", "Lime"], ["green", "#16a34a", "Green"], ["emerald", "#059669", "Emerald"],
+    ["teal", "#0f9fae", "Teal"], ["sky", "#0284c7", "Sky"], ["graphite", "#475569", "Graphite"],
+  ];
   window.settings = function () {
     const info = nativeInfo();
     const vi = voiceInfo();
@@ -4547,6 +4607,7 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
         ICON.target,
         row("", "IELTS target band", p ? PLANS[p.target].label + " · week " + (p.week || 1) : "Not set yet", `<button class="btn ghost small" data-goto-goal>${p ? "Change" : "Set target"}</button>`) +
           row("", "Daily reminder", NATIVE ? "A notification at your study time" : "Available in the Android app", `${NATIVE ? `<input type="time" id="remTime" value="${esc(state.reminderTime)}" class="s-time" ${state.reminderOn ? "" : "disabled"}>` : ""}<button role="switch" aria-checked="${!!state.reminderOn}" aria-label="Daily reminder" class="switch ${state.reminderOn ? "on" : ""}" id="remSwitch" ${NATIVE ? "" : "disabled"}></button>`) +
+          row("", "Smart reminders", NATIVE ? "Gentle notifications about unfinished goals, streaks and tests while the app is closed" : "Available in the Android app", sw("nudges", "Smart reminders") + (NATIVE ? `<button class="btn ghost small" id="testNotif">Test</button>` : "")) +
           row("", "Daily question goal", "Auto-marked questions to aim for each day", `<select id="goalSel" aria-label="Daily question goal">${[5, 10, 15, 20, 30, 50].map((n) => `<option ${Number(state.goal) === n ? "selected" : ""}>${n}</option>`).join("")}</select>`) +
           row("", "Exam mode", "Hide answers until the end of each quiz, like the real test", sw("examMode", "Exam mode")),
       ) +
@@ -4592,9 +4653,9 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
             "",
             "Accent colour",
             "",
-            `<div class="swatches">${[["blue", "#3968f5"], ["violet", "#7959ed"], ["teal", "#0f9fae"], ["rose", "#e0457b"], ["amber", "#d98a0b"]]
-              .map(([k, c]) => `<button class="swatch ${state.accent === k ? "on" : ""}" data-set="accent" data-val="${k}" style="--c:${c}" aria-label="${k}"></button>`)
-              .join("")}</div>`,
+            `<div class="swatches">${ACCENTS.map(
+              ([k, c, label]) => `<button class="swatch ${state.accent === k ? "on" : ""}" data-set="accent" data-val="${k}" style="--c:${c}" aria-label="${label}" title="${label}"></button>`,
+            ).join("")}<label class="swatch custom ${state.accent === "custom" ? "on" : ""}" style="--c:${esc(state.accentCustom || "#3968f5")}" title="Custom colour" aria-label="Custom colour"><input type="color" id="accentPick" value="${esc(state.accentCustom || "#3968f5")}"></label></div>`,
           ) +
           row("", "Larger text", "Increase reading size", sw("large", "Larger text")) +
           row("", "Reduce motion", "Calmer screens with fewer animations", sw("motion", "Reduce motion")) +
@@ -4683,6 +4744,29 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
       save();
       apply();
       notify(`Reminder time: ${state.reminderTime}.`);
+    });
+    on("accentPick", "oninput", (e) => {
+      state.accent = "custom";
+      state.accentCustom = e.target.value;
+      applyAccent();
+      const sw = e.target.closest(".swatch");
+      if (sw) sw.style.setProperty("--c", e.target.value);
+    });
+    on("accentPick", "onchange", (e) => {
+      state.accent = "custom";
+      state.accentCustom = e.target.value;
+      save();
+      apply();
+      render();
+    });
+    on("testNotif", "onclick", () => {
+      if (!TQNative.call("notificationsAllowed")) {
+        TQNative.call("requestNotifications");
+        return;
+      }
+      const n = Nudge.build()[0] || { title: "Your practice is waiting", body: "One short session today keeps your preparation on track." };
+      TQNative.call("testNotification", n.title, n.body);
+      notify("A sample reminder was sent. Check your notification bar.");
     });
     on("goalSel", "onchange", (e) => {
       state.goal = Number(e.target.value);
@@ -4789,6 +4873,107 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
   }
   // the old Settings "Reset" button is replaced by "Clear this device" / "Delete account"
 
+  /* ============================================================ SMART REMINDERS */
+  const Nudge = (TQ.nudge = {
+    build() {
+      if (state.nudges === false || !account) return [];
+      const now = new Date(), out = [];
+      const atTime = (dayOffset, h, m) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() + dayOffset);
+        d.setHours(h, m, 0, 0);
+        return d;
+      };
+      const add = (d, title, body, tag) => d > now && out.push({ at: d.getTime(), title, body, tag });
+      const p = Goal.plan();
+      const i = p ? Goal.dayIndex(p) : -1;
+      const today = p && i >= 0 && i < 7 ? Goal.progress(p, i) : null;
+      const st = window.stats ? window.stats() : { streak: 0 };
+      const practisedToday = state.results.some((r) => dayKey(new Date(r.date)) === dayKey());
+      const left = today ? today.total - today.done : 0;
+      const leftMins = today ? today.tasks.filter((t) => !t.done).reduce((n, t) => n + t.mins, 0) : 0;
+      // this evening: today's goal is unfinished
+      if (today && left > 0) {
+        const t = new Date(Math.max(now.getTime() + 2 * 3600e3, atTime(0, 19, 30).getTime()));
+        if (t.getHours() < 22 && dayKey(t) === dayKey(now))
+          add(t, "Today's goal is still open", `You have ${left} of ${today.total} task${today.total === 1 ? "" : "s"} left. About ${Math.max(5, leftMins)} minutes is all it takes to finish.`, "goal");
+      }
+      // this evening: the streak is at risk
+      if (st.streak >= 2 && !practisedToday) {
+        const t = new Date(Math.max(now.getTime() + 1.5 * 3600e3, atTime(0, 20, 30).getTime()));
+        if (t.getHours() < 22 && dayKey(t) === dayKey(now))
+          add(t, `Keep your ${st.streak}-day streak alive`, "Complete one short practice task before midnight to keep it going.", "streak");
+      }
+      // an unfinished test
+      const draft = Object.entries(state.drafts || {})
+        .map(([id, d]) => ({ t: tests.find((x) => x.id === id), d }))
+        .filter((x) => x.t && !x.t.hidden && x.d && (Object.keys(x.d.ans || {}).length || x.d.index || x.d.text))
+        .sort((a, b) => (b.d.updated || 0) - (a.d.updated || 0))[0];
+      if (draft) {
+        const t = new Date(now.getTime() + 4 * 3600e3);
+        if (t.getHours() >= 9 && t.getHours() < 21)
+          add(t, "You left a test unfinished", `${draft.t.title} is saved where you stopped. You can finish it in a few minutes.`, "draft");
+      }
+      // tomorrow morning: the day's plan
+      if (p && i + 1 >= 0 && i + 1 < 7) {
+        const next = Goal.tasksFor(p, i + 1);
+        add(atTime(1, 9, 30), "Your study plan for today is ready", `${next.length} tasks are waiting, starting with ${next[0].label}. Small daily steps add up to a higher band.`, "plan");
+      } else if (p && i + 1 >= 7) {
+        add(atTime(1, 10, 0), "Your weekly band report is ready", "See how your Listening, Reading, Writing and Speaking moved this week, and get next week's plan.", "weekly");
+      } else {
+        add(atTime(1, 18, 0), "Your practice is waiting", "One short session today keeps your preparation on track.", "daily");
+      }
+      // longer absences
+      add(atTime(2, 18, 0), "It's been a couple of days", "Consistency matters more than intensity. Pick up where you left off — even ten minutes counts.", "away2");
+      add(atTime(5, 18, 30), "Your progress is saved and waiting", "Come back for a quick practice set and see exactly where you stand.", "away5");
+      // keep at most one reminder within any three hours, never late at night
+      out.sort((a, b) => a.at - b.at);
+      const kept = [];
+      for (const n of out) {
+        const h = new Date(n.at).getHours();
+        if (h >= 22 || h < 8) continue;
+        if (kept.length && n.at - kept[kept.length - 1].at < 3 * 3600e3) continue;
+        kept.push(n);
+      }
+      return kept.slice(0, 6);
+    },
+    push() {
+      if (!NATIVE) return;
+      try {
+        TQNative.call("setNudges", JSON.stringify(Nudge.build()));
+      } catch {}
+    },
+  });
+  let nudgeTimer = null;
+  const queueNudges = (TQ.queueNudges = () => {
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(Nudge.push, 1500);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) Nudge.push();
+  });
+  function maybeAskNotifications() {
+    if (!NATIVE || state.notifAsked || !account || document.getElementById("splash")) return;
+    const w = document.getElementById("welcome");
+    if (w && !w.hidden) return;
+    if (TQNative.call("notificationsAllowed")) return;
+    state.notifAsked = true;
+    save();
+    setTimeout(() => {
+      const el = TQ.openSheet(
+        `<div class="sheet-icon">${ICON.bell}</div><h2>Stay on track with gentle reminders</h2><p class="muted">Testriq can remind you when today's goal is unfinished, when your streak is at risk, or when you've left a test halfway. Reminders are short, never sent late at night, and you can turn them off any time in Settings.</p><div class="sheet-actions"><button class="btn ghost" data-n="0">Not now</button><button class="btn primary" data-n="1">Allow reminders</button></div>`,
+      );
+      el.querySelectorAll("[data-n]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            TQ.closeSheet();
+            if (b.dataset.n === "1") TQNative.call("requestNotifications");
+          }),
+      );
+    }, 900);
+  }
+  TQ.askNotifications = maybeAskNotifications;
+
   /* ============================================================ MOTION & FEEL */
   const RIPPLE = ".btn,.navbtn,.coursecard,.seccard,.foldercard,.iconbtn,.wl-btn,.target-opt,.day-pill,.srow button,.seg button,.wh-row,.g-task button,.avatar";
   document.addEventListener(
@@ -4860,7 +5045,8 @@ ${w.nextWeek?.length ? `<h3>Next week's plan</h3><ol class="practice-plan">${w.n
         }
       })
       .catch(() => {});
-  // the opening screen: a calmer, shorter splash
+  Nudge.push();
+  // the opening screen
   const splash = $("#splash");
   if (splash && state.motion) splash.remove();
 })();

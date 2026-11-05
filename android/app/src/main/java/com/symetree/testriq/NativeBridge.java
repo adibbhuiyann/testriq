@@ -126,6 +126,24 @@ public class NativeBridge {
         Reminders.schedule(act);
     }
 
+    /**
+     * Smart reminders shown while the app is closed. json = [{"at": epochMillis, "title": "...", "body": "..."}].
+     * They are scheduled when the app goes to the background and cancelled when it is opened again.
+     */
+    @JavascriptInterface
+    public void setNudges(String json) {
+        Reminders.saveNudges(act, json);
+        if (!act.resumedNow) Reminders.scheduleNudges(act);
+    }
+
+    /** Shows a sample reminder right away so people can check notifications work. */
+    @JavascriptInterface
+    public void testNotification(String title, String body) {
+        android.content.Intent i = new android.content.Intent(act, ReminderReceiver.class)
+                .setAction(Reminders.ACTION_NUDGE).putExtra("i", 5).putExtra("title", title).putExtra("body", body);
+        act.sendBroadcast(i);
+    }
+
     @JavascriptInterface
     public void rateApp() {
         act.runOnUiThread(() -> {

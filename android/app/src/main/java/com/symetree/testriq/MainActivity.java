@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
 
     private static final int LIGHT_BG = 0xFFF4F6FB;
     private static final int DARK_BG = 0xFF0D1221;
+    private static final int SPLASH_BG = 0xFF0B1230;
 
     WebView web;
     private FrameLayout root;
@@ -69,6 +70,7 @@ public class MainActivity extends Activity {
     private float density = 1f;
     private int insetTop, insetBottom, insetLeft, insetRight;
     private boolean darkTheme;
+    volatile boolean resumedNow;
     private Object backCallback;
 
     @Override
@@ -78,13 +80,16 @@ public class MainActivity extends Activity {
         setupWindow();
 
         root = new FrameLayout(this);
-        root.setBackgroundColor(LIGHT_BG);
+        root.setBackgroundColor(SPLASH_BG);
         web = new WebView(this);
-        web.setBackgroundColor(LIGHT_BG);
+        web.setBackgroundColor(SPLASH_BG);
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
-        applySystemBarAppearance(false);
+        applySystemBarAppearance(true);
+        // the page decides the real colours once its opening screen has finished
+        root.setBackgroundColor(SPLASH_BG);
+        web.setBackgroundColor(SPLASH_BG);
 
         configureWebView();
         speech = new SpeechBridge(this);
@@ -493,12 +498,17 @@ public class MainActivity extends Activity {
         super.onPause();
         if (speech != null) speech.pauseAll();
         if (web != null) web.onPause();
+        resumedNow = false;
+        // Reminders only go out while the app is closed.
+        Reminders.scheduleNudges(this);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        resumedNow = true;
         if (web != null) web.onResume();
+        Reminders.cancelNudges(this);
     }
 
     @Override

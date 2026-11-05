@@ -9,12 +9,17 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.Calendar;
 
 /** Stores and schedules the optional daily study reminder. */
 final class Reminders {
     static final String CHANNEL = "study_reminders";
     static final String ACTION_FIRE = "com.symetree.testriq.REMINDER";
+    static final String ACTION_NUDGE = "com.symetree.testriq.NUDGE";
+    static final int MAX_NUDGES = 6;
     private static final String PREFS = "testriq_reminder";
 
     private Reminders() {
@@ -64,5 +69,48 @@ final class Reminders {
         NotificationChannel ch = new NotificationChannel(CHANNEL, "Study reminders", NotificationManager.IMPORTANCE_DEFAULT);
         ch.setDescription("A daily nudge to complete your study goal");
         nm.createNotificationChannel(ch);
+    }
+
+    // ------------------------------------------------------------ smart reminders
+
+    static void saveNudges(Context c, String json) {
+        prefs(c).edit().putString("nudges", json == null ? "[]" : json).apply();
+    }
+
+    private static PendingIntent nudgeIntent(Context c, int i, String title, String body, int flags) {
+        Intent intent = new Intent(c, ReminderReceiver.class).setAction(ACTION_NUDGE)
+                .putExtra("i", i).putExtra("title", title).putExtra("body", body);
+        return PendingIntent.getBroadcast(c, 100 + i, intent, flags | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** Schedules the saved reminders (called when the app goes to the background and after a reboot). */
+    static void scheduleNudges(Context c) {
+        AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        cancelNudges(c);
+        try {
+            JSONArray list = new JSONArray(prefs(c).getString("nudges", "[]"));
+            long now = System.currentTimeMillis();
+            int n = 0;
+            for (int i = 0; i < list.length() && n < MAX_NUDGES; i++) {
+                JSONObject o = list.getJSONObject(i);
+                long at = o.optLong("at", 0);
+                if (at < now + 60_000) continue;
+                PendingIntent pi = nudgeIntent(c, n, o.optString("title"), o.optString("body"), PendingIntent.FLAG_UPDATE_CURRENT);
+                am.setWindow(AlarmManager.RTC_WAKEUP, at, 15 * 60 * 1000L, pi);
+                n++;
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Cancels pending reminders (called whenever the app is opened). */
+    static void cancelNudges(Context c) {
+        AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        for (int i = 0; i < MAX_NUDGES; i++) {
+            PendingIntent pi = nudgeIntent(c, i, "", "", PendingIntent.FLAG_UPDATE_CURRENT);
+            am.cancel(pi);
+        }
     }
 }

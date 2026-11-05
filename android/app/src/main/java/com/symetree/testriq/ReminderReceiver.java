@@ -16,14 +16,26 @@ public class ReminderReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent == null ? null : intent.getAction();
+        if (Reminders.ACTION_NUDGE.equals(action)) {
+            post(context, 2000 + intent.getIntExtra("i", 0), intent.getStringExtra("title"), intent.getStringExtra("body"));
+            return;
+        }
         if (Reminders.ACTION_FIRE.equals(action)) show(context);
         Reminders.schedule(context);
+        if (!Reminders.ACTION_FIRE.equals(action)) Reminders.scheduleNudges(context); // after reboot / update
     }
 
-    @SuppressWarnings("deprecation")
     private void show(Context c) {
         SharedPreferences p = Reminders.prefs(c);
         if (!p.getBoolean("enabled", false)) return;
+        post(c, 1001, p.getString("title", "Time for today's practice"),
+                p.getString("body", "A focused 15 minutes keeps your band moving up."));
+    }
+
+    @SuppressWarnings("deprecation")
+    private void post(Context c, int id, String title, String body) {
+        if (title == null || title.isEmpty()) return;
+        if (body == null) body = "";
         if (Build.VERSION.SDK_INT >= 33
                 && c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return;
@@ -37,13 +49,13 @@ public class ReminderReceiver extends BroadcastReceiver {
                 ? new Notification.Builder(c, Reminders.CHANNEL)
                 : new Notification.Builder(c);
         b.setSmallIcon(R.drawable.ic_stat_testriq)
-                .setContentTitle(p.getString("title", "Time for today's practice"))
-                .setContentText(p.getString("body", "A focused 15 minutes keeps your band moving up."))
-                .setStyle(new Notification.BigTextStyle().bigText(p.getString("body", "")))
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new Notification.BigTextStyle().bigText(body))
                 .setColor(0xFF3968F5)
                 .setAutoCancel(true)
                 .setContentIntent(pi);
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(1001, b.build());
+        if (nm != null) nm.notify(id, b.build());
     }
 }
