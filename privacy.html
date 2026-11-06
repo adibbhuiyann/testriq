@@ -21,7 +21,7 @@
 </style>
 </head>
 <body>
-<header><div><img src="icon.svg" alt=""><h1>Testriq Privacy Policy</h1><p>Last updated: 5 November 2026 · Applies to the Testriq Android app and website</p></div></header>
+<header><div><img src="icon.svg" alt=""><h1>Testriq Privacy Policy</h1><p>Last updated: 6 November 2026 · Applies to the Testriq Android app and website</p></div></header>
 <main>
 <section>
   <h2>Who we are</h2>
@@ -32,15 +32,19 @@
   <ul>
     <li><b>Account details</b> — if you create an account: your email address and name, and (if you choose Google or Facebook sign-in) your profile name and photo from that service. Used to sign you in and keep your progress.</li>
     <li><b>Practice data</b> — your answers, results, band estimates, goals and settings. Stored on your device. If you are signed in, a copy is stored in our cloud database (Google Firebase, or Testriq's own server on Cloudflare) so you can log in again after reinstalling or on another device. In the Android app, a copy is also kept in your phone's own backup (Android backup to your Google account), so your account and progress come back if you reinstall the app. You can also save a backup file yourself; it stays wherever you choose to keep it.</li>
-    <li><b>Microphone</b> — used only while you answer a speaking question. Your device's speech recognition service (for example Google) converts speech to text. Testriq does not store raw audio from live speaking tests.</li>
-    <li><b>AI examiner</b> — when you request AI feedback, the text of your speaking or writing answers (and, only if you choose an audio assessment, the recordings) is sent to our AI service (a Cloudflare Worker) and processed by Google's Gemini API to produce your scores. Google's free API tier may use submitted content to improve its products. Do not include sensitive personal information in your answers.</li>
+    <li><b>Microphone</b> — used only while you answer a speaking question. Your device's speech recognition service (for example Google) converts speech to text.</li>
+    <li><b>Voice recordings for pronunciation marking</b> — in IELTS speaking tests, while "Mark my pronunciation from my voice" is on (Settings → Examiner; on by default), your spoken answers are recorded. When the test ends, up to about two minutes of them are sent once, as one recording, to our AI service so the AI examiner can mark your pronunciation from your real voice. Our server passes the recording to Google's Gemini API for that marking and then asks Google to delete it; Testriq does not keep it. On your phone the recordings stay in the app's private storage until your next speaking test replaces them. Turn the setting off and only the text of your answers is sent.</li>
+    <li><b>AI examiner</b> — when you request AI feedback, the text of your speaking or writing answers (and the voice recording described above) is sent to our AI service (a Cloudflare Worker) and processed by Google's Gemini API to produce your scores and corrections. Google's free API tier may use submitted content to improve its products. Do not include sensitive personal information in your answers.</li>
+    <li><b>App and device identifier</b> — the app sends a random identifier created on your device (not linked to your name, phone number or advertising ID) and its version with AI requests. Our server uses it, together with your internet address, only to count each day's AI marks so everyone gets a fair share of the free service. Old daily counts are deleted automatically.</li>
+    <li><b>Password reset emails</b> — if you ask to reset your password, your email address is sent to our email provider (Brevo) to deliver a one-time code. The code expires after 15 minutes.</li>
+    <li><b>Google sign-in</b> — if you continue with Google, Google tells our server your verified email address, name and profile photo. We use them only to create and sign you in to your Testriq account.</li>
     <li><b>Notifications</b> — study reminders (a daily reminder at your chosen time, and short nudges about unfinished goals or after a few days away), scheduled on your device. You can turn them off in Settings or in your phone's settings.</li>
   </ul>
   <p>We do not show ads, we do not sell your data and we do not use it for tracking.</p>
 </section>
 <section>
   <h2>Sharing</h2>
-  <p>Data is processed only by the services above (Google Firebase or Cloudflare for accounts and sync, Android backup for your phone's own backup, Cloudflare and Google Gemini for AI feedback, your device's speech service for recognition) under their own privacy terms. We do not share it with anyone else unless the law requires it.</p>
+  <p>Data is processed only by the services above (Google Firebase or Cloudflare for accounts and sync, Android backup for your phone's own backup, Cloudflare and Google Gemini for AI feedback, Brevo for password-reset emails, Google for Google sign-in, your device's speech service for recognition) under their own privacy terms. We do not share it with anyone else unless the law requires it.</p>
 </section>
 <section>
   <h2>Security and retention</h2>

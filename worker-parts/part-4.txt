@@ -1,4 +1,132 @@
-// ===== Testriq worker · PART 4 of 4 — paste this right after part 3 =====
+// ===== Testriq worker · PART 4 of 6 — paste this right after part 3 =====
+async function judgeVoice(form, env, ctx) {
+  if (!env.GEMINI_KEY) throw Object.assign(new Error('GEMINI_KEY is not set on the Worker'), { status: 503 });
+  let b;
+  try {
+    b = JSON.parse(form.get('payload') || '{}');
+  } catch {
+    throw fail(400, 'BAD_PAYLOAD', 'Bad payload');
+  }
+  const file = form.get('audio');
+  if (!file || typeof file.arrayBuffer !== 'function' || !file.size) throw fail(400, 'NO_AUDIO', 'No recording received.');
+  if (file.size > 6_500_000) throw fail(413, 'TOO_LARGE', 'The recording is too long.');
+  let meta = [];
+  try {
+    meta = JSON.parse(form.get('audioMeta') || '[]');
+  } catch {}
+  meta = arr(meta, 40).map((x) => ({ part: str(x?.part, 40) || 'Answer', question: str(x?.question, 300), start: Number(x?.start) || 0, end: Number(x?.end) || 0 }));
+  if (!meta.length) throw fail(400, 'NO_AUDIO', 'No recording received.');
+  const file2 = await uploadAudio(env, file);
+  try {
+    return await judge(b, env, { ...file2, meta });
+  } finally {
+    const del = deleteAudio(env, file2.name);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(del);
+  }
+}
+
+/* ---------------------------------------------------------------- writing */
+async function writing(b, env) {
+  const task = b.task === 'ielts-t1' ? 'ielts-t1' : 'ielts-t2';
+  const t1 = task === 'ielts-t1';
+  const response = str(b.response, 12000);
+  const words = (response.match(/\S+/g) || []).length;
+  const prompt = `You are a certified IELTS Writing examiner. Mark this IELTS Academic Writing ${t1 ? 'Task 1 (report on a visual, minimum 150 words)' : 'Task 2 (essay, minimum 250 words)'} strictly against the public band descriptors.
+
+Criteria (whole bands 1–9):
+- ${t1 ? '"ta" Task Achievement: covers requirements, clear overview of main trends/differences/stages, key features highlighted and accurately supported with data, no opinion.' : '"tr" Task Response: addresses all parts of the task, clear position throughout, ideas extended and supported, relevant.'}
+- "cc" Coherence & Cohesion: logical organisation, paragraphing, a range of cohesive devices used appropriately (not mechanical), referencing.
+- "lr" Lexical Resource: range, precision, collocation, less common vocabulary, spelling and word formation.
+- "gr" Grammatical Range & Accuracy: mix of simple and complex structures, proportion of error-free sentences, punctuation.
+
+Use the full range 3–9 and judge only the evidence: weak scripts get 4 or below, strong ones 7–8, near-native ones 8.5–9. Criteria often differ by 1–2 bands. Under the word minimum: ${t1 ? 'Task Achievement' : 'Task Response'} is penalised (under ${t1 ? 150 : 250} words → max 5 for that criterion; under ${t1 ? 100 : 170} words → max 4). Memorised, off-topic or copied-prompt text is penalised. ${t1 ? 'No overview → Task Achievement max 5.' : 'No clear position when asked → Task Response max 5.'} Each criterion is judged independently.
+
+THE TASK:
+${str(b.prompt, 3000)}
+${b.visual ? 'Key data shown in the visual: ' + str(b.visual, 2500) : ''}
+
+THE CANDIDATE'S RESPONSE (${words} words):
+"""${response}"""
+
+Return ONLY this JSON:
+{"criteria":[{"key":"${t1 ? 'ta' : 'tr'}","observation":"2-3 sentences with quotes (write this first)","score":n,"practice":"one specific next step"},{"key":"cc",...},{"key":"lr",...},{"key":"gr",...}],
+"summary":"3 sentences","strengths":["..."] (2-4),"improvements":[{"issue":"...","action":"..."}] (2-4),
+"corrections":[{"excerpt":"exact text from the response","fix":"corrected text","why":"short reason","kind":"grammar"|"spelling"|"punctuation"|"vocabulary"}] (up to 12, real errors only),
+"rewrite":"an improved version of ONE weak sentence or paragraph from the response, at band 8 level",
+"vocabulary":[{"word":"a better word or phrase","instead":"the plainer word the candidate used, or empty","meaning":"short meaning","example":"a natural example sentence on this topic"}] (3-5 upgrades drawn from THIS response),
+"confidence":"low"|"medium"|"high"}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 7000 });
+  const labels = { ta: 'Task achievement', tr: 'Task response', cc: 'Coherence & cohesion', lr: 'Lexical resource', gr: 'Grammatical range & accuracy' };
+  const keys = [t1 ? 'ta' : 'tr', 'cc', 'lr', 'gr'];
+  const criteria = keys.map((key) => {
+    const c = arr(data.criteria, 8).find((x) => x && x.key === key) || {};
+    return { key, label: labels[key], score: wholeBand(c.score) ?? 5, observation: str(c.observation, 900), practice: str(c.practice, 500) };
+  });
+  return {
+    assessment: {
+      source: 'ai',
+      model,
+      overall: ieltsRound(criteria.reduce((n, c) => n + c.score, 0) / 4),
+      criteria,
+      summary: str(data.summary, 900),
+      strengths: arr(data.strengths, 5).map((s) => str(s, 300)).filter(Boolean),
+      improvements: arr(data.improvements, 5).map((i) => ({ issue: str(i?.issue, 120), action: str(i?.action, 400) })).filter((i) => i.issue),
+      corrections: arr(data.corrections, 15)
+        .map((c) => ({ excerpt: str(c?.excerpt, 200), fix: str(c?.fix, 200), why: str(c?.why, 200), kind: ['grammar', 'spelling', 'punctuation', 'vocabulary'].includes(c?.kind) ? c.kind : 'grammar' }))
+        .filter((c) => c.excerpt && c.fix),
+      rewrite: str(data.rewrite, 1500),
+      vocabulary: vocabList(data.vocabulary),
+      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'medium',
+    },
+  };
+}
+
+/* ---------------------------------------------------------------- weekly estimate */
+async function weekly(b, env) {
+  const s = b.summary || {};
+  const prompt = `You are a senior IELTS examiner and coach. A learner has finished one week of daily practice in the Testriq app. Estimate their CURRENT IELTS Academic band for each skill and overall, from the evidence below.
+
+Rules:
+- Be realistic and strict; do not inflate. Base each skill only on its evidence. Small samples (1–2 short tests) must be treated cautiously: move towards the middle of the evidence, mark confidence "low".
+- Listening/Reading: the app gives raw accuracy and the official raw-score conversion; short practice sets are easier than a full paper, so a skill band can be up to 0.5 below the converted value when samples are small.
+- Writing/Speaking: use the examiner band scores given (AI or on-device estimates).
+- A skill with no evidence gets band null.
+- Consider consistency and trend (improving or declining) across the week.
+
+Target band: ${str(b.target, 20) || 'not set'}. Days the daily goal was completed: ${Number(b.daysCompleted) || 0} of 7.
+
+EVIDENCE:
+${JSON.stringify(s).slice(0, 12000)}
+
+Return ONLY this JSON:
+{"skills":{"listening":band or null,"reading":band or null,"writing":band or null,"speaking":band or null} (half bands allowed),
+"confidence":"low"|"medium"|"high",
+"summary":"3-4 sentences: where they stand, the gap to the target, the single most important priority",
+"skillNotes":{"listening":"1-2 sentences","reading":"...","writing":"...","speaking":"..."},
+"strengths":["..."] (2-3),"priorities":["..."] (2-4, concrete),
+"nextWeek":[{"day":"Monday","task":"..."}] (7 entries, realistic for the target)}`;
+  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 5000 });
+  const skills = {};
+  for (const k of ['listening', 'reading', 'writing', 'speaking']) skills[k] = data.skills?.[k] == null ? null : band(data.skills[k]);
+  const have = Object.values(skills).filter((v) => v != null);
+  return {
+    weekly: {
+      source: 'ai',
+      model,
+      skills,
+      overall: have.length ? ieltsRound(have.reduce((a, c) => a + c, 0) / have.length) : null,
+      complete: have.length === 4,
+      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'low',
+      summary: str(data.summary, 1200),
+      skillNotes: Object.fromEntries(['listening', 'reading', 'writing', 'speaking'].map((k) => [k, str(data.skillNotes?.[k], 400)])),
+      strengths: arr(data.strengths, 4).map((x) => str(x, 300)).filter(Boolean),
+      priorities: arr(data.priorities, 5).map((x) => str(x, 300)).filter(Boolean),
+      nextWeek: arr(data.nextWeek, 7).map((d) => ({ day: str(d?.day, 30), task: str(d?.task, 300) })).filter((d) => d.day && d.task),
+      created: new Date().toISOString(),
+    },
+  };
+}
+
 /* ---------------------------------------------------------------- cloud accounts (Cloudflare D1)
    Accounts and progress are stored in a D1 database bound to this Worker as DB, so a learner
    who deletes the app, changes phone or reinstalls can log in and get everything back.
@@ -22,159 +150,4 @@ async function pbkdf2(password, salt) {
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, key, 256);
   return hex(bits);
 }
-async function database(env) {
-  if (!env.DB) throw fail(501, 'NO_DATABASE', 'Cloud accounts are not switched on for this server yet.');
-  if (!schemaReady) {
-    await env.DB.batch([
-      env.DB.prepare('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, uid TEXT NOT NULL UNIQUE, name TEXT, salt TEXT NOT NULL, hash TEXT NOT NULL, created INTEGER, updated INTEGER, data TEXT, fails INTEGER DEFAULT 0, locked INTEGER DEFAULT 0)'),
-      env.DB.prepare('CREATE TABLE IF NOT EXISTS sessions (th TEXT PRIMARY KEY, uid TEXT NOT NULL, created INTEGER, expires INTEGER)'),
-      env.DB.prepare('CREATE INDEX IF NOT EXISTS sessions_uid ON sessions(uid)'),
-    ]);
-    schemaReady = true;
-  }
-  return env.DB;
-}
-const cleanEmail = (e) => {
-  const v = str(e, 254).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) throw fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
-  return v;
-};
-const checkPassword = (p) => {
-  if (typeof p !== 'string' || p.length < 6) throw fail(400, 'WEAK_PASSWORD', 'Choose a password of at least 6 characters.');
-  if (p.length > 200) throw fail(400, 'WEAK_PASSWORD', 'That password is too long.');
-  return p;
-};
-async function newSession(DB, uid) {
-  const token = randomHex(32);
-  const now = Date.now();
-  await DB.prepare('INSERT INTO sessions (th, uid, created, expires) VALUES (?, ?, ?, ?)').bind(await sha256(token), uid, now, now + SESSION_DAYS * 864e5).run();
-  return token;
-}
-async function userFor(DB, token) {
-  if (typeof token !== 'string' || token.length !== 64) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
-  const s = await DB.prepare('SELECT uid, expires FROM sessions WHERE th = ?').bind(await sha256(token)).first();
-  if (!s || s.expires < Date.now()) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
-  const u = await DB.prepare('SELECT * FROM users WHERE uid = ?').bind(s.uid).first();
-  if (!u) throw fail(401, 'SESSION_EXPIRED', 'Please log in again.');
-  return u;
-}
-const publicUser = (u, token) => ({ token, uid: u.uid, email: u.email, name: u.name || '', updated: u.updated || 0 });
-const checkData = (d) => {
-  const s = typeof d === 'string' ? d : JSON.stringify(d ?? null);
-  if (s.length > MAX_DATA) throw fail(413, 'TOO_LARGE', 'Your saved progress is too large to sync.');
-  return s;
-};
-
-async function account(action, b, env) {
-  const DB = await database(env);
-  const now = Date.now();
-  if (action === 'account.signup') {
-    const email = cleanEmail(b.email);
-    const password = checkPassword(b.password);
-    const name = str(b.name, 60);
-    if (await DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw fail(409, 'EMAIL_EXISTS', 'An account with this email already exists. Log in instead.');
-    const uid = 'c-' + randomHex(12);
-    const salt = randomHex(16);
-    const data = b.data == null ? null : checkData(b.data);
-    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(email, uid, name, salt, await pbkdf2(password, salt), now, data ? now : 0, data).run();
-    return { ...publicUser({ uid, email, name, updated: data ? now : 0 }, await newSession(DB, uid)), data: null, created: true };
-  }
-  if (action === 'account.login') {
-    const email = cleanEmail(b.email);
-    const password = checkPassword(b.password);
-    const u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
-    if (!u) throw fail(404, 'NOT_FOUND', 'No account uses this email yet.');
-    if (u.locked && u.locked > now) throw fail(429, 'TOO_MANY_ATTEMPTS', 'Too many attempts. Please wait a few minutes and try again.');
-    if (!sameText(await pbkdf2(password, u.salt), u.hash)) {
-      const fails = (u.fails || 0) + 1;
-      await DB.prepare('UPDATE users SET fails = ?, locked = ? WHERE email = ?').bind(fails >= 8 ? 0 : fails, fails >= 8 ? now + 15 * 60e3 : 0, email).run();
-      throw fail(401, 'WRONG_PASSWORD', 'The email or password is incorrect.');
-    }
-    if (u.fails) await DB.prepare('UPDATE users SET fails = 0, locked = 0 WHERE email = ?').bind(email).run();
-    return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null };
-  }
-  const u = await userFor(DB, b.token);
-  if (action === 'account.pull') return { ...publicUser(u, undefined), data: u.data || null };
-  if (action === 'account.push') {
-    const data = checkData(b.data);
-    const name = b.name == null ? u.name : str(b.name, 60);
-    await DB.prepare('UPDATE users SET data = ?, updated = ?, name = ? WHERE uid = ?').bind(data, now, name, u.uid).run();
-    return { ok: true, updated: now };
-  }
-  if (action === 'account.logout') {
-    await DB.prepare('DELETE FROM sessions WHERE th = ?').bind(await sha256(b.token)).run();
-    return { ok: true };
-  }
-  if (action === 'account.password') {
-    if (!sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash)) throw fail(401, 'WRONG_PASSWORD', 'Your current password is incorrect.');
-    const salt = randomHex(16);
-    await DB.prepare('UPDATE users SET salt = ?, hash = ? WHERE uid = ?').bind(salt, await pbkdf2(checkPassword(b.newPassword), salt), u.uid).run();
-    return { ok: true };
-  }
-  if (action === 'account.delete') {
-    if (!sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash)) throw fail(401, 'WRONG_PASSWORD', 'Your password is incorrect.');
-    await DB.batch([DB.prepare('DELETE FROM sessions WHERE uid = ?').bind(u.uid), DB.prepare('DELETE FROM users WHERE uid = ?').bind(u.uid)]);
-    return { ok: true, deleted: true };
-  }
-  throw fail(400, 'UNKNOWN_ACTION', 'Unknown action');
-}
-
-/* ---------------------------------------------------------------- router */
-export default {
-  async fetch(req, env) {
-    const origin = req.headers.get('Origin') || '';
-    const allowed = [...DEFAULT_ORIGINS, ...(env.ALLOWED || '').split(',').map((x) => x.trim()).filter(Boolean)];
-    const ok = !origin || allowed.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-    const cors = {
-      'Access-Control-Allow-Origin': ok && origin ? origin : allowed[0],
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '86400',
-      Vary: 'Origin',
-    };
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
-    if (!ok) return json({ error: 'Origin not allowed' }, 403, cors);
-    if (req.method === 'GET') {
-      return json({ ok: true, service: 'Testriq AI examiner', version: '1.0.2.1', configured: !!env.GEMINI_KEY, accounts: !!env.DB, models: SCORING_MODELS }, 200, cors);
-    }
-    if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
-    try {
-      const type = req.headers.get('Content-Type') || '';
-      if (type.includes('multipart/form-data')) {
-        const form = await req.formData();
-        if (form.get('action') !== 'assess') return json({ error: 'Unknown action' }, 400, cors);
-        return json(await assessAudio(form, env), 200, cors);
-      }
-      const text = await req.text();
-      if (text.length > 400_000) return json({ error: 'Request too large' }, 413, cors);
-      let b;
-      try {
-        b = JSON.parse(text);
-      } catch {
-        return json({ error: 'Bad JSON' }, 400, cors);
-      }
-      if (typeof b.action === 'string' && b.action.startsWith('account.')) return json(await account(b.action, b, env), 200, cors);
-      switch (b.action) {
-        case 'ping': {
-          const r = await gemini(env, [{ text: 'Return {"ok":true}' }], { fast: true, maxTokens: 20, timeout: 15000 });
-          return json({ ok: true, model: r.model }, 200, cors);
-        }
-        case 'followup':
-          return json(await followup(b, env), 200, cors);
-        case 'judge':
-          return json(await judge(b, env), 200, cors);
-        case 'writing':
-          return json(await writing(b, env), 200, cors);
-        case 'weekly':
-          return json(await weekly(b, env), 200, cors);
-        default:
-          return json({ error: 'Unknown action' }, 400, cors);
-      }
-    } catch (e) {
-      const status = e.status || 500;
-      return json({ error: String(e.message || e).slice(0, 300), code: e.code || undefined }, status, cors);
-    }
-  },
-};
-// ===== end of PART 4 of 4 — the whole worker is in. Tap Deploy. =====
+// ===== end of PART 4 of 6 — now paste part 5 =====

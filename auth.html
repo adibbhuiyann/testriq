@@ -27,6 +27,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   small{display:block;margin-top:22px;color:#7d8aad;font-size:.75rem}
   [hidden]{display:none!important}
+  #gbtn{display:flex;justify-content:center;min-height:44px}
 </style>
 <script src="config.js"></script>
 </head>
@@ -36,15 +37,13 @@
   <h1 id="title">Sign in to Testriq</h1>
   <p id="lead">Continue to keep your progress safe in your account.</p>
   <button id="go" class="google" hidden></button>
+  <div id="gbtn" hidden></div>
   <a id="back" class="btn google" hidden>Return to Testriq</a>
   <button id="cancel" class="ghost">Cancel</button>
   <div class="status" id="status" role="status"></div>
   <small>Testriq · by SYMETREE</small>
 </main>
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, FacebookAuthProvider, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
 const $ = (id) => document.getElementById(id);
 const cfg = window.TESTRIQ_CONFIG || {};
 const q = new URLSearchParams(location.search);
@@ -98,12 +97,45 @@ $("cancel").onclick = () => {
   else location.replace(safeReturn(req?.ret || ""));
 };
 
+// Google sign-in for accounts on the Testriq server: Google's own button gives an ID token,
+// which the app hands to the server to check. Used when Firebase isn't set up.
+const serverGoogle = req && req.provider === "google" && cfg.googleClientId && !(cfg.firebase && cfg.firebase.apiKey);
+const loadScript = (src) => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.async = true; s.onload = ok; s.onerror = bad; document.head.append(s); });
+
 if (!req || !["google", "facebook"].includes(req.provider)) {
   status("This sign-in link is incomplete. Please start again from the Testriq app.", true);
+} else if (serverGoogle) {
+  sessionStorage.setItem("tq_auth_req", JSON.stringify(req));
+  $("lead").textContent = "Choose your Google account to continue.";
+  status('<span class="spinner"></span>&nbsp; Loading Google…');
+  try {
+    await loadScript("https://accounts.google.com/gsi/client");
+    google.accounts.id.initialize({
+      client_id: cfg.googleClientId,
+      ux_mode: "popup",
+      auto_select: false,
+      itp_support: true,
+      callback: (resp) => {
+        if (!resp || !resp.credential) return fail("Google sign-in didn't complete. Please try again.");
+        status('<span class="spinner"></span>&nbsp; Signing you in…');
+        sessionStorage.removeItem("tq_auth_req");
+        finish(new URLSearchParams({ state: req.state, provider: "google", gtoken: resp.credential }).toString());
+      },
+    });
+    $("gbtn").hidden = false;
+    google.accounts.id.renderButton($("gbtn"), { theme: "filled_blue", size: "large", shape: "pill", text: "continue_with", logo_alignment: "left", width: Math.min(340, $("card").clientWidth - 52) });
+    status("");
+  } catch {
+    status("Google sign-in couldn't load. Check your internet connection and try again.", true);
+  }
 } else if (!cfg.firebase || !cfg.firebase.apiKey) {
   status("Sign-in isn't set up yet. Please use email or guest mode in the app.", true);
 } else {
   sessionStorage.setItem("tq_auth_req", JSON.stringify(req));
+  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, FacebookAuthProvider, browserLocalPersistence, setPersistence } = await import(
+    "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"
+  );
   const app = initializeApp({ apiKey: cfg.firebase.apiKey, authDomain: cfg.firebase.authDomain, projectId: cfg.firebase.projectId, appId: cfg.firebase.appId });
   const auth = getAuth(app);
   await setPersistence(auth, browserLocalPersistence).catch(() => {});

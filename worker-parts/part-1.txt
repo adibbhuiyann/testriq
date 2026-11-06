@@ -1,4 +1,4 @@
-// ===== Testriq worker · PART 1 of 4 — delete everything in the editor, then paste this =====
+// ===== Testriq worker · PART 1 of 6 — delete everything in the editor, then paste this =====
 /* =====================================================================
    Testriq AI examiner — Cloudflare Worker (free tier friendly)
    Examiners: Sajid Shahriar (male) and Jishad Mozmder (female).
@@ -7,11 +7,14 @@
    - followup : the next examiner question (IELTS Part 1 / Part 3 probing,
                 challenging follow-ups based on what the candidate said)
    - judge    : IELTS Speaking band scores from the full interview transcript
-   - assess   : IELTS Speaking band scores from audio recordings
+   - judgeVoice: the same, with the candidate's recorded answers, so pronunciation
+                is marked from the real voice (multipart upload, sent to Gemini as a file)
+   - assess   : IELTS Speaking band scores from audio recordings (older apps)
    - writing  : IELTS Writing Task 1 / Task 2 band scores
    - weekly   : a weekly IELTS band estimate from a week of practice
    - account.*: cloud accounts, so progress survives reinstalling the app
-                (needs a D1 database bound as DB — see SETUP.md)
+                (needs a D1 database bound as DB — see SETUP.md), password reset
+                codes by email and Google sign-in
    - GET /    : health check (shows which model answered)
 
    Setup (Cloudflare dashboard → Workers → your worker → Settings → Variables and Secrets)
@@ -20,6 +23,13 @@
    - ALLOWED     (Text)     extra allowed web origins, comma separated (optional)
    - MODEL       (Text)     preferred model for scoring (optional)
    - FAST_MODEL  (Text)     preferred model for follow-up questions (optional)
+   - BREVO_KEY   (Secret)   Brevo API key, for password-reset emails (optional)
+   - MAIL_FROM   (Text)     the sender address you verified in Brevo (optional)
+   - GOOGLE_CLIENT_ID (Text) your Google OAuth web client ID, for Google sign-in (optional)
+   - DAILY_AI_CAP (Text)    most AI marks per day for everyone together (default 3000)
+
+   Fair use: with the D1 database bound, each phone (and each internet address) gets a
+   daily number of AI marks, so one person can't use up the free Gemini quota for everyone.
    The Android app's origin (https://appassets.androidplatform.net) and
    https://adibbhuiyann.github.io are always allowed.
    ===================================================================== */
@@ -108,6 +118,11 @@ const sanitizeTurns = (messages) =>
     .map((m) => ({ role: m?.role === 'user' ? 'Candidate' : 'Examiner', text: str(m?.content, 1500) }))
     .filter((m) => m.text);
 
+const vocabList = (v) =>
+  arr(v, 6)
+    .map((x) => ({ word: str(x?.word, 60), instead: str(x?.instead, 60), meaning: str(x?.meaning, 160), example: str(x?.example, 240) }))
+    .filter((x) => x.word);
+
 function toBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -116,5 +131,4 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
-/** Calls Gemini, trying several models until one answers. Returns { data, model }. */
-// ===== end of PART 1 of 4 — now paste part 2 =====
+// ===== end of PART 1 of 6 — now paste part 2 =====
