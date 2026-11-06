@@ -24,8 +24,8 @@ Your app is signed with a private **upload key**. The key is stored in this repo
 - The build runs automatically every time you change the app files on `main`.
 - To run it by hand: **Actions → Build Testriq Android app → Run workflow**.
 - When it finishes (about 5 minutes), open **Releases** (right side of the repository's front page) and download:
-  - `Testriq-x.y.z-NNN.aab`: upload this to Google Play.
-  - `Testriq-x.y.z-NNN.apk`: install this directly on your phone to test.
+  - `Testriq-x.y.z.aab`: upload this to Google Play.
+  - `Testriq-x.y.z.apk`: install this directly on your phone to test.
 
 If a build fails, the error log is saved to the `ci-logs` branch (`last-build.log`).
 
