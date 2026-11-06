@@ -1,0 +1,18 @@
+// Cloudflare Worker settings for the Testriq server (worker.js).
+// Cloudflare deploys the server automatically from GitHub with these settings
+// (Workers & Pages → testriq → Settings → Build). See SETUP.md, "Automatic server updates".
+// The Gemini key is NOT here: it stays a secret in the Cloudflare dashboard (GEMINI_KEY).
+{
+  "name": "testriq",
+  "main": "worker.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "testriq-users",
+      "database_id": "2a05ee48-ee5f-47f2-af17-cbced33c0147"
+    }
+  ],
+  "observability": { "enabled": true }
+}
