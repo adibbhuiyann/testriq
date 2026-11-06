@@ -29,6 +29,17 @@ Testriq is an exam-practice app with a live AI speaking examiner, AI writing mar
 - **Live judge:** during IELTS speaking tests a live band meter updates after every answer, with a quick tip. It scores the four criteria from what you said (answer development, linking, vocabulary range, idioms, grammar range and slips) and how you said it (speaking rate, pauses, response delay, recognition clarity), across the full band range 3–9.
 - At the end, the AI examiner (when connected) marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, the live judge's full report is used.
 
+## Version 1.0.3
+
+- **A new look.** One set of hand-drawn line icons across the whole app (they fill in on the selected tab), proper IELTS, SAT and PTE course icons, and the Inter typeface built in, so it looks the same on every phone.
+- **A calmer speaking test.** Illustrated examiners (Sajid and Jishad), a sound wave that moves while the examiner speaks and with your voice while you answer, and a live band meter that folds away (tap it for the details).
+- **Pronunciation marked from your voice.** In IELTS speaking tests your answers are recorded (Android 13 and newer, the website on a computer, and the Windows app) and up to two minutes are sent to the AI examiner with the transcript, so pronunciation is judged from how you actually sound. It can be switched off in Settings.
+- **Band rings and progress charts.** Each criterion in a report has a band ring. Progress shows your band over time for each skill and for each speaking and writing criterion, with a tooltip and a table view.
+- **Mistake notebook.** Every correction from your speaking and writing, quiz questions you missed and better words for the plain ones you use are saved automatically. A short daily review (spaced repetition: 1, 2, 4, 8, 16, 32 days) makes them stick; the home screen shows today's cards.
+- **Full timed mock exam.** Take a mock test as one exam: Listening, Reading, Writing and Speaking back to back with a one-minute break between sections, then one overall band.
+- **Google sign-in and password reset by email** through the Testriq server (SETUP.md steps 5–6), and **fair daily limits** on AI marking for each phone, so the free Gemini quota is shared fairly.
+- Friendly empty screens with a clear next step everywhere.
+
 ## Version 1.0.2
 
 - **Accounts that survive reinstalling.** Cloud accounts on the Testriq server (Worker + D1, see SETUP.md step 4). Without a server, the Android app keeps the account and progress in the phone's Google backup, restored automatically after reinstalling, and learners can save and restore a backup file.

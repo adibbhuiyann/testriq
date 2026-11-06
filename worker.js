@@ -6,11 +6,14 @@
    - followup : the next examiner question (IELTS Part 1 / Part 3 probing,
                 challenging follow-ups based on what the candidate said)
    - judge    : IELTS Speaking band scores from the full interview transcript
-   - assess   : IELTS Speaking band scores from audio recordings
+   - judgeVoice: the same, with the candidate's recorded answers, so pronunciation
+                is marked from the real voice (multipart upload, sent to Gemini as a file)
+   - assess   : IELTS Speaking band scores from audio recordings (older apps)
    - writing  : IELTS Writing Task 1 / Task 2 band scores
    - weekly   : a weekly IELTS band estimate from a week of practice
    - account.*: cloud accounts, so progress survives reinstalling the app
-                (needs a D1 database bound as DB — see SETUP.md)
+                (needs a D1 database bound as DB — see SETUP.md), password reset
+                codes by email and Google sign-in
    - GET /    : health check (shows which model answered)
 
    Setup (Cloudflare dashboard → Workers → your worker → Settings → Variables and Secrets)
@@ -19,6 +22,13 @@
    - ALLOWED     (Text)     extra allowed web origins, comma separated (optional)
    - MODEL       (Text)     preferred model for scoring (optional)
    - FAST_MODEL  (Text)     preferred model for follow-up questions (optional)
+   - BREVO_KEY   (Secret)   Brevo API key, for password-reset emails (optional)
+   - MAIL_FROM   (Text)     the sender address you verified in Brevo (optional)
+   - GOOGLE_CLIENT_ID (Text) your Google OAuth web client ID, for Google sign-in (optional)
+   - DAILY_AI_CAP (Text)    most AI marks per day for everyone together (default 3000)
+
+   Fair use: with the D1 database bound, each phone (and each internet address) gets a
+   daily number of AI marks, so one person can't use up the free Gemini quota for everyone.
    The Android app's origin (https://appassets.androidplatform.net) and
    https://adibbhuiyann.github.io are always allowed.
    ===================================================================== */
@@ -106,6 +116,11 @@ const sanitizeTurns = (messages) =>
   arr(messages, 40)
     .map((m) => ({ role: m?.role === 'user' ? 'Candidate' : 'Examiner', text: str(m?.content, 1500) }))
     .filter((m) => m.text);
+
+const vocabList = (v) =>
+  arr(v, 6)
+    .map((x) => ({ word: str(x?.word, 60), instead: str(x?.instead, 60), meaning: str(x?.meaning, 160), example: str(x?.example, 240) }))
+    .filter((x) => x.word);
 
 function toBase64(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -271,6 +286,7 @@ function shapeSpeaking(data, { typed, exam = 'IELTS', source }) {
       .filter((p) => p.day && p.task),
     limitations: arr(data.limitations, 5).map((s) => str(s, 300)).filter(Boolean),
     nextBandTips: str(data.nextBandTips, 600),
+    vocabulary: vocabList(data.vocabulary),
     created: new Date().toISOString(),
   };
 }
@@ -284,10 +300,11 @@ const SPEAKING_OUTPUT = `Return ONLY this JSON:
 "corrections":[{"said":"exact words used","better":"natural correct version","why":"short reason"}] (up to 6, only real errors),
 "plan":[{"day":"Day 1","task":"..."}] (5-7 days, specific to this candidate),
 "nextBandTips":"what exactly would move this candidate up half a band",
+"vocabulary":[{"word":"a better word or phrase","instead":"the plainer word this candidate actually used, or empty","meaning":"short meaning","example":"a natural example sentence on the candidate's own topic"}] (3-5 upgrades drawn from THIS candidate's answers),
 "limitations":["honest limits of this assessment"] (1-3)}`;
 
 /* ---------------------------------------------------------------- judge (transcript) */
-async function judge(b, env) {
+async function judge(b, env, voice = null) {
   const answers = arr(b.answers, 40).map((a) => ({
     part: str(a?.part, 60),
     question: str(a?.question, 500),
@@ -318,15 +335,26 @@ MEASURED FACTS (computed by the app, trust these):
 - Possible slips flagged automatically (check them yourself): ${arr(m.likelySlips, 10).map((x) => str(x, 80)).join('; ') || 'none'}
 - Part 2 long turn: ${m.part2 ? `${Number(m.part2.words) || 0} words in ${Number(m.part2.sec) || 0} s` : 'not in this test'}
 - Answers were ${typed ? 'TYPED (so pronunciation must be null and fluency judged from organisation only)' : 'SPOKEN and transcribed automatically'}
-
+${
+  voice
+    ? `
+YOU CAN ALSO HEAR THE CANDIDATE. The attached recording holds ${voice.meta.length} of the answers, in order, with a short silence between them:
+${voice.meta.map((x) => `- ${x.start}–${x.end} s: [${x.part}] ${x.question}`).join('\n')}
+Judge PRONUNCIATION from what you hear: individual sounds, word stress, sentence stress, rhythm, intonation, chunking and how easy the candidate is to understand. Quote words that were mispronounced, if any. Use the audio to check fluency too (pace, hesitation, self-correction). The transcript comes from speech recognition and may contain mistakes: where the audio shows the candidate said something different, trust the audio and do not mark recognition errors as the candidate's grammar or vocabulary mistakes. Answers that are not in the recording are judged from the transcript.
+`
+    : ''
+}
 THE TEST (question → candidate's answer):
 ${answers.map((a, i) => `#${i + 1} [${a.part}] Q: ${a.question}\nA: ${a.answer || '(no answer)'}${a.seconds ? ` (${Math.round(a.seconds)} s, ${a.words} words${a.confidence != null && a.confidence >= 0 ? `, recognition ${a.confidence.toFixed(2)}` : ''}${a.delay != null ? `, started after ${a.delay} s` : ''}${a.pauses ? `, ${a.pauses} long pause${a.pauses === 1 ? '' : 's'}` : ''})` : ''}`).join('\n\n')}
 
 ${SPEAKING_OUTPUT}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.35, maxTokens: 6000 });
-  const assessment = shapeSpeaking(data, { typed, source: 'ai-transcript' });
+  const parts = [{ text: prompt }];
+  if (voice) parts.push({ file_data: { mime_type: voice.mime, file_uri: voice.uri } });
+  const { data, model } = await gemini(env, parts, { temperature: 0.35, maxTokens: 6500, timeout: voice ? 90000 : 55000 });
+  const assessment = shapeSpeaking(data, { typed, source: voice ? 'audio-ai' : 'ai-transcript' });
   assessment.model = model;
-  if (!typed && (m.confidence == null || m.confidence < 0))
+  if (voice) assessment.voiceSeconds = Math.round(voice.meta.reduce((n, x) => n + (Number(x.end) - Number(x.start) || 0), 0));
+  if (!voice && !typed && (m.confidence == null || m.confidence < 0))
     assessment.limitations.push('Pronunciation was estimated from the transcript only; record your answers for a fuller check.');
   return { assessment };
 }
@@ -366,6 +394,72 @@ ${SPEAKING_OUTPUT.replace('"limitations"', '"transcript":"what you heard, all re
   return { assessment: a };
 }
 
+/* ---------------------------------------------------------------- judge with the recorded answers
+   The app sends one WAV (all answers, 16 kHz mono, at most about 2 minutes). It is passed to
+   Gemini's file store as it arrived — no re-encoding here, which keeps the Worker's CPU time tiny —
+   used for this one marking, then deleted. */
+const GEMINI = 'https://generativelanguage.googleapis.com';
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function uploadAudio(env, blob) {
+  const mime = 'audio/wav';
+  const start = await fetch(`${GEMINI}/upload/v1beta/files`, {
+    method: 'POST',
+    headers: {
+      'x-goog-api-key': env.GEMINI_KEY,
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(blob.size),
+      'X-Goog-Upload-Header-Content-Type': mime,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: 'testriq-speaking-answers' } }),
+  });
+  const url = start.headers.get('x-goog-upload-url');
+  if (!start.ok || !url) throw fail(502, 'UPLOAD_FAILED', `The recording could not be prepared for marking (${start.status}).`);
+  const up = await fetch(url, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': env.GEMINI_KEY, 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
+    body: blob,
+  });
+  const d = await up.json().catch(() => ({}));
+  let f = d.file;
+  if (!up.ok || !f || !f.uri) throw fail(502, 'UPLOAD_FAILED', `The recording could not be uploaded for marking (${up.status}).`);
+  for (let k = 0; k < 8 && f.state === 'PROCESSING'; k++) {
+    await wait(700);
+    const r = await fetch(`${GEMINI}/v1beta/${f.name}`, { headers: { 'x-goog-api-key': env.GEMINI_KEY } });
+    if (r.ok) f = await r.json();
+  }
+  if (f.state === 'FAILED') throw fail(502, 'UPLOAD_FAILED', 'The recording could not be read.');
+  return { name: f.name, uri: f.uri, mime: f.mimeType || mime };
+}
+const deleteAudio = (env, name) => fetch(`${GEMINI}/v1beta/${name}`, { method: 'DELETE', headers: { 'x-goog-api-key': env.GEMINI_KEY } }).catch(() => {});
+
+async function judgeVoice(form, env, ctx) {
+  if (!env.GEMINI_KEY) throw Object.assign(new Error('GEMINI_KEY is not set on the Worker'), { status: 503 });
+  let b;
+  try {
+    b = JSON.parse(form.get('payload') || '{}');
+  } catch {
+    throw fail(400, 'BAD_PAYLOAD', 'Bad payload');
+  }
+  const file = form.get('audio');
+  if (!file || typeof file.arrayBuffer !== 'function' || !file.size) throw fail(400, 'NO_AUDIO', 'No recording received.');
+  if (file.size > 6_500_000) throw fail(413, 'TOO_LARGE', 'The recording is too long.');
+  let meta = [];
+  try {
+    meta = JSON.parse(form.get('audioMeta') || '[]');
+  } catch {}
+  meta = arr(meta, 40).map((x) => ({ part: str(x?.part, 40) || 'Answer', question: str(x?.question, 300), start: Number(x?.start) || 0, end: Number(x?.end) || 0 }));
+  if (!meta.length) throw fail(400, 'NO_AUDIO', 'No recording received.');
+  const file2 = await uploadAudio(env, file);
+  try {
+    return await judge(b, env, { ...file2, meta });
+  } finally {
+    const del = deleteAudio(env, file2.name);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(del);
+  }
+}
+
 /* ---------------------------------------------------------------- writing */
 async function writing(b, env) {
   const task = b.task === 'ielts-t1' ? 'ielts-t1' : 'ielts-t2';
@@ -394,6 +488,7 @@ Return ONLY this JSON:
 "summary":"3 sentences","strengths":["..."] (2-4),"improvements":[{"issue":"...","action":"..."}] (2-4),
 "corrections":[{"excerpt":"exact text from the response","fix":"corrected text","why":"short reason","kind":"grammar"|"spelling"|"punctuation"|"vocabulary"}] (up to 12, real errors only),
 "rewrite":"an improved version of ONE weak sentence or paragraph from the response, at band 8 level",
+"vocabulary":[{"word":"a better word or phrase","instead":"the plainer word the candidate used, or empty","meaning":"short meaning","example":"a natural example sentence on this topic"}] (3-5 upgrades drawn from THIS response),
 "confidence":"low"|"medium"|"high"}`;
   const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 7000 });
   const labels = { ta: 'Task achievement', tr: 'Task response', cc: 'Coherence & cohesion', lr: 'Lexical resource', gr: 'Grammatical range & accuracy' };
@@ -415,6 +510,7 @@ Return ONLY this JSON:
         .map((c) => ({ excerpt: str(c?.excerpt, 200), fix: str(c?.fix, 200), why: str(c?.why, 200), kind: ['grammar', 'spelling', 'punctuation', 'vocabulary'].includes(c?.kind) ? c.kind : 'grammar' }))
         .filter((c) => c.excerpt && c.fix),
       rewrite: str(data.rewrite, 1500),
+      vocabulary: vocabList(data.vocabulary),
       confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'medium',
     },
   };
@@ -496,7 +592,13 @@ async function database(env) {
       env.DB.prepare('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, uid TEXT NOT NULL UNIQUE, name TEXT, salt TEXT NOT NULL, hash TEXT NOT NULL, created INTEGER, updated INTEGER, data TEXT, fails INTEGER DEFAULT 0, locked INTEGER DEFAULT 0)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS sessions (th TEXT PRIMARY KEY, uid TEXT NOT NULL, created INTEGER, expires INTEGER)'),
       env.DB.prepare('CREATE INDEX IF NOT EXISTS sessions_uid ON sessions(uid)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, who TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, who, kind))'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS resets (email TEXT PRIMARY KEY, hash TEXT NOT NULL, expires INTEGER, tries INTEGER DEFAULT 0, sent INTEGER, day TEXT, count INTEGER DEFAULT 0)'),
     ]);
+    // 1.0.3: how the account signs in ("password" or "google")
+    try {
+      await env.DB.prepare('ALTER TABLE users ADD COLUMN provider TEXT').run();
+    } catch {}
     schemaReady = true;
   }
   return env.DB;
@@ -543,8 +645,8 @@ async function account(action, b, env) {
     const uid = 'c-' + randomHex(12);
     const salt = randomHex(16);
     const data = b.data == null ? null : checkData(b.data);
-    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(email, uid, name, salt, await pbkdf2(password, salt), now, data ? now : 0, data).run();
+    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(email, uid, name, salt, await pbkdf2(password, salt), now, data ? now : 0, data, 'password').run();
     return { ...publicUser({ uid, email, name, updated: data ? now : 0 }, await newSession(DB, uid)), data: null, created: true };
   }
   if (action === 'account.login') {
@@ -561,6 +663,9 @@ async function account(action, b, env) {
     if (u.fails) await DB.prepare('UPDATE users SET fails = 0, locked = 0 WHERE email = ?').bind(email).run();
     return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null };
   }
+  if (action === 'account.resetRequest') return resetRequest(DB, b, env, now);
+  if (action === 'account.resetConfirm') return resetConfirm(DB, b, now);
+  if (action === 'account.google') return googleSignIn(DB, b, env, now);
   const u = await userFor(DB, b.token);
   if (action === 'account.pull') return { ...publicUser(u, undefined), data: u.data || null };
   if (action === 'account.push') {
@@ -580,37 +685,197 @@ async function account(action, b, env) {
     return { ok: true };
   }
   if (action === 'account.delete') {
-    if (!sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash)) throw fail(401, 'WRONG_PASSWORD', 'Your password is incorrect.');
+    // a Google account has no Testriq password; its signed-in session is the proof
+    if (!(u.provider === 'google' && !b.password) && !sameText(await pbkdf2(checkPassword(b.password), u.salt), u.hash))
+      throw fail(401, 'WRONG_PASSWORD', 'Your password is incorrect.');
     await DB.batch([DB.prepare('DELETE FROM sessions WHERE uid = ?').bind(u.uid), DB.prepare('DELETE FROM users WHERE uid = ?').bind(u.uid)]);
     return { ok: true, deleted: true };
   }
   throw fail(400, 'UNKNOWN_ACTION', 'Unknown action');
 }
 
+/* ---------------------------------------------------------------- password reset by email (Brevo) */
+const today = () => new Date().toISOString().slice(0, 10);
+async function sendMail(env, to, subject, html, text) {
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': env.BREVO_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ sender: { name: env.MAIL_NAME || 'Testriq', email: env.MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html, textContent: text }),
+  });
+  if (!r.ok) throw fail(502, 'MAIL_FAILED', 'We could not send the email right now. Please try again in a few minutes.');
+}
+const resetEmail = (name, code) => {
+  const hi = name ? `Hi ${name.replace(/[<>&"]/g, '')},` : 'Hi,';
+  return {
+    text: `${hi}\n\nYour Testriq code is ${code}\n\nEnter it in the app to choose a new password. It works for 15 minutes.\nIf you didn't ask for this, you can ignore this email — your password stays the same.\n\nTestriq · by SYMETREE`,
+    html: `<div style="font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;max-width:460px;margin:0 auto;padding:28px 24px;color:#172342"><p style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#4f6df5;font-weight:800;margin:0 0 18px">Testriq</p><p style="margin:0 0 14px">${hi}</p><p style="margin:0 0 18px">Here is your code to choose a new password:</p><p style="font-size:34px;font-weight:800;letter-spacing:.32em;margin:0 0 18px;padding:16px 0;text-align:center;background:#f1f4ff;border-radius:14px">${code}</p><p style="margin:0 0 8px;color:#5b6783;font-size:14px">Enter it in the Testriq app. It works for 15 minutes.</p><p style="margin:0;color:#5b6783;font-size:14px">If you didn't ask for this, ignore this email — your password stays the same.</p><p style="margin:26px 0 0;color:#98a2b8;font-size:12px">Testriq · by SYMETREE</p></div>`,
+  };
+};
+async function resetRequest(DB, b, env, now) {
+  if (!env.BREVO_KEY || !env.MAIL_FROM) throw fail(501, 'NO_MAIL', "Password reset by email isn't set up on this server yet.");
+  const email = cleanEmail(b.email);
+  const u = await DB.prepare('SELECT uid, name FROM users WHERE email = ?').bind(email).first();
+  if (!u) throw fail(404, 'NOT_FOUND', 'No Testriq account uses this email. Check the spelling, or create an account.');
+  const r = await DB.prepare('SELECT * FROM resets WHERE email = ?').bind(email).first();
+  if (r && now - (r.sent || 0) < 45e3) throw fail(429, 'TOO_SOON', 'We just sent a code. Please wait a minute before asking for another.');
+  if (r && r.day === today() && (r.count || 0) >= 5) throw fail(429, 'TOO_MANY_CODES', 'Too many codes today. Please try again tomorrow.');
+  const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+  await DB.prepare(
+    'INSERT INTO resets (email, hash, expires, tries, sent, day, count) VALUES (?, ?, ?, 0, ?, ?, 1) ON CONFLICT(email) DO UPDATE SET hash = excluded.hash, expires = excluded.expires, tries = 0, sent = excluded.sent, count = CASE WHEN resets.day = excluded.day THEN resets.count + 1 ELSE 1 END, day = excluded.day',
+  )
+    .bind(email, await sha256(email + ':' + code), now + 15 * 60e3, now, today())
+    .run();
+  const m = resetEmail(u.name || '', code);
+  await sendMail(env, email, `${code} is your Testriq code`, m.html, m.text);
+  return { ok: true, sent: true };
+}
+async function resetConfirm(DB, b, now) {
+  const email = cleanEmail(b.email);
+  const code = String(b.code || '').replace(/\D/g, '');
+  const password = checkPassword(b.password);
+  const r = await DB.prepare('SELECT * FROM resets WHERE email = ?').bind(email).first();
+  if (!r || r.expires < now) throw fail(400, 'CODE_EXPIRED', 'This code has expired. Ask for a new one.');
+  if ((r.tries || 0) >= 5) throw fail(429, 'TOO_MANY_ATTEMPTS', 'Too many wrong codes. Ask for a new one.');
+  if (code.length !== 6 || !sameText(await sha256(email + ':' + code), r.hash)) {
+    await DB.prepare('UPDATE resets SET tries = tries + 1 WHERE email = ?').bind(email).run();
+    throw fail(400, 'WRONG_CODE', "That code isn't right. Check the email and try again.");
+  }
+  const u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  if (!u) throw fail(404, 'NOT_FOUND', 'No Testriq account uses this email.');
+  const salt = randomHex(16);
+  await DB.batch([
+    DB.prepare('UPDATE users SET salt = ?, hash = ?, fails = 0, locked = 0 WHERE uid = ?').bind(salt, await pbkdf2(password, salt), u.uid),
+    DB.prepare('DELETE FROM sessions WHERE uid = ?').bind(u.uid),
+    DB.prepare('DELETE FROM resets WHERE email = ?').bind(email),
+  ]);
+  return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null };
+}
+
+/* ---------------------------------------------------------------- Google sign-in
+   The app opens auth.html, Google signs the learner in and gives an ID token; Google itself
+   confirms that token here, and the learner gets a Testriq account for that (verified) email. */
+async function googleSignIn(DB, b, env, now) {
+  const ids = String(env.GOOGLE_CLIENT_ID || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) throw fail(501, 'NO_GOOGLE', "Google sign-in isn't set up on this server yet.");
+  const token = str(b.idToken, 4096);
+  if (!token) throw fail(400, 'GOOGLE_FAILED', 'Google sign-in did not complete. Please try again.');
+  const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token));
+  const g = await r.json().catch(() => ({}));
+  const verified = g.email_verified === true || g.email_verified === 'true';
+  if (!r.ok || !ids.includes(g.aud) || !['accounts.google.com', 'https://accounts.google.com'].includes(g.iss) || Number(g.exp) * 1000 < now || !verified || !g.email)
+    throw fail(401, 'GOOGLE_FAILED', 'Google sign-in could not be confirmed. Please try again.');
+  const email = cleanEmail(g.email);
+  let u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  let created = false;
+  if (!u) {
+    const uid = 'c-' + randomHex(12);
+    const salt = randomHex(16);
+    const name = str(g.name, 60);
+    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data, provider) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)')
+      .bind(email, uid, name, salt, await pbkdf2(randomHex(24), salt), now, 'google')
+      .run();
+    u = { email, uid, name, updated: 0, data: null };
+    created = true;
+  }
+  return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null, created, photo: str(g.picture, 500) };
+}
+
+/* ---------------------------------------------------------------- fair daily limits
+   Counted per phone (the app's X-Testriq-Device id) and per internet address, in D1.
+   Many people can share one address (mobile networks), so those limits are generous. */
+const LIMITS = {
+  judge: { device: 30, ip: 200 },
+  voice: { device: 15, ip: 100 },
+  writing: { device: 25, ip: 150 },
+  followup: { device: 700, ip: 5000 },
+  weekly: { device: 12, ip: 100 },
+  sync: { device: 600, ip: 6000 },
+  signup: { ip: 20 },
+  login: { ip: 150 },
+  reset: { ip: 15 },
+  google: { ip: 100 },
+};
+const AI_KINDS = new Set(['judge', 'voice', 'writing', 'weekly']);
+async function limit(env, req, kind) {
+  const L = LIMITS[kind];
+  if (!env.DB || !L) return;
+  const DB = await database(env);
+  const day = today();
+  const dev = (req.headers.get('X-Testriq-Device') || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 48);
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  const checks = [];
+  if (L.device && dev.length >= 8) checks.push(['d:' + dev, L.device]);
+  if (L.ip) checks.push(['i:' + ip, L.ip]);
+  if (AI_KINDS.has(kind)) checks.push(['all', Number(env.DAILY_AI_CAP) || 3000]);
+  const up = 'INSERT INTO usage (day, who, kind, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, who, kind) DO UPDATE SET n = n + 1 RETURNING n';
+  const res = await DB.batch(checks.map(([who]) => DB.prepare(up).bind(day, who, who === 'all' ? 'ai' : kind)));
+  if (Math.random() < 0.01) await DB.prepare('DELETE FROM usage WHERE day < ?').bind(day).run().catch(() => {});
+  checks.forEach(([who, max], i) => {
+    const n = res[i]?.results?.[0]?.n || 0;
+    if (n <= max) return;
+    const what = { judge: 'speaking marks', voice: 'voice marks', writing: 'writing marks', weekly: 'weekly reports', followup: 'examiner questions', sync: 'syncs' }[kind] || 'attempts';
+    const msg =
+      who === 'all'
+        ? "Testriq's AI examiner has reached today's limit. The on-device estimate is shown — try AI marking again tomorrow."
+        : `You've reached today's limit of ${max} AI ${what}. It resets at midnight (GMT). The on-device estimate is shown for now.`;
+    throw Object.assign(new Error(kind === 'signup' || kind === 'login' || kind === 'reset' || kind === 'google' ? 'Too many attempts from this network today. Please try again tomorrow.' : msg), {
+      status: 429,
+      code: 'DAILY_LIMIT',
+      limit: true,
+    });
+  });
+}
+const ACCOUNT_KIND = { 'account.signup': 'signup', 'account.login': 'login', 'account.resetRequest': 'reset', 'account.resetConfirm': 'login', 'account.google': 'google', 'account.pull': 'sync', 'account.push': 'sync' };
+
 /* ---------------------------------------------------------------- router */
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const origin = req.headers.get('Origin') || '';
     const allowed = [...DEFAULT_ORIGINS, ...(env.ALLOWED || '').split(',').map((x) => x.trim()).filter(Boolean)];
     const ok = !origin || allowed.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
     const cors = {
       'Access-Control-Allow-Origin': ok && origin ? origin : allowed[0],
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Testriq-Device, X-Testriq-App',
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
     };
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!ok) return json({ error: 'Origin not allowed' }, 403, cors);
     if (req.method === 'GET') {
-      return json({ ok: true, service: 'Testriq AI examiner', version: '1.0.2.1', configured: !!env.GEMINI_KEY, accounts: !!env.DB, models: SCORING_MODELS }, 200, cors);
+      return json(
+        {
+          ok: true,
+          service: 'Testriq AI examiner',
+          version: '1.0.3',
+          configured: !!env.GEMINI_KEY,
+          accounts: !!env.DB,
+          voice: !!env.GEMINI_KEY,
+          reset: !!(env.DB && env.BREVO_KEY && env.MAIL_FROM),
+          google: !!(env.DB && env.GOOGLE_CLIENT_ID),
+          limits: !!env.DB,
+          models: SCORING_MODELS,
+        },
+        200,
+        cors,
+      );
     }
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
+    // Only Testriq talks to this server: the app and website (their origins) or a client that names itself.
+    const app = req.headers.get('X-Testriq-App') || '';
+    if (!origin && !/^testriq\/\d/.test(app)) return json({ error: 'Unknown client' }, 403, cors);
     try {
       const type = req.headers.get('Content-Type') || '';
       if (type.includes('multipart/form-data')) {
+        if (Number(req.headers.get('Content-Length') || 0) > 7_000_000) return json({ error: 'Request too large' }, 413, cors);
         const form = await req.formData();
-        if (form.get('action') !== 'assess') return json({ error: 'Unknown action' }, 400, cors);
+        const action = form.get('action');
+        if (action === 'judgeVoice') {
+          await limit(env, req, 'voice');
+          return json(await judgeVoice(form, env, ctx), 200, cors);
+        }
+        if (action !== 'assess') return json({ error: 'Unknown action' }, 400, cors);
+        await limit(env, req, 'voice');
         return json(await assessAudio(form, env), 200, cors);
       }
       const text = await req.text();
@@ -621,7 +886,12 @@ export default {
       } catch {
         return json({ error: 'Bad JSON' }, 400, cors);
       }
-      if (typeof b.action === 'string' && b.action.startsWith('account.')) return json(await account(b.action, b, env), 200, cors);
+      if (typeof b.action === 'string' && b.action.startsWith('account.')) {
+        if (ACCOUNT_KIND[b.action]) await limit(env, req, ACCOUNT_KIND[b.action]);
+        return json(await account(b.action, b, env), 200, cors);
+      }
+      const KIND = { ping: 'followup', followup: 'followup', judge: 'judge', writing: 'writing', weekly: 'weekly' };
+      if (KIND[b.action]) await limit(env, req, KIND[b.action]);
       switch (b.action) {
         case 'ping': {
           const r = await gemini(env, [{ text: 'Return {"ok":true}' }], { fast: true, maxTokens: 20, timeout: 15000 });
@@ -640,7 +910,7 @@ export default {
       }
     } catch (e) {
       const status = e.status || 500;
-      return json({ error: String(e.message || e).slice(0, 300), code: e.code || undefined }, status, cors);
+      return json({ error: String(e.message || e).slice(0, 300), code: e.code || undefined, limit: e.limit || undefined }, status, cors);
     }
   },
 };

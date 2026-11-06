@@ -1,13 +1,16 @@
 package com.symetree.testriq;
 
 import android.content.Intent;
+import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -20,6 +23,7 @@ import android.webkit.JavascriptInterface;
 
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +67,12 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
     private boolean beepsMuted;
     private long lastRms;
 
+    // the candidate's recorded answers (pronunciation marking)
+    final VoiceRecorder recorder;
+    private boolean sessionPipe, sessionReady, sessionHeard;
+    private long sessionVoicedStart;
+    private volatile int turnHeard;
+
     private static final class Job {
         final String text, id, examinerId;
         final float volume;
@@ -82,6 +92,8 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
 
     SpeechBridge(MainActivity activity) {
         act = activity;
+        recorder = new VoiceRecorder(activity);
+        recorder.setLevelListener(db -> listenEvent("rms", String.format(Locale.US, "%.2f", db), -1));
         initTts();
     }
 
@@ -488,6 +500,40 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         main.post(this::startListening);
     }
 
+    // ------------------------------------------------------------ recorded answers
+
+    @JavascriptInterface
+    public boolean audioCaptureSupported() {
+        return recorder.supported() && act.hasMicPermission();
+    }
+
+    /** Starts recording one answer. Call it just before listen(). */
+    @JavascriptInterface
+    public boolean recordTurn(String id) {
+        turnHeard = 0;
+        return act.hasMicPermission() && recorder.start(id);
+    }
+
+    /** Stops the answer; returns {"id","ms","voiced"} or {} when nothing usable was recorded. */
+    @JavascriptInterface
+    public String finishTurn() {
+        long voiced = recorder.voicedMs();
+        int heard = turnHeard;
+        String r = recorder.finish();
+        // the recogniser heard plenty but our recording is silent: this phone gives the microphone to only one
+        if (heard >= 3 && voiced < 300 && recorder.supported()) recorder.markBroken("recording silent while recognition worked");
+        return r;
+    }
+
+    @JavascriptInterface
+    public void clearRecordings() {
+        recorder.clearAll();
+    }
+
+    File recordingFile(String name) {
+        return recorder.file(name);
+    }
+
     @JavascriptInterface
     public void stopListening() {
         main.post(this::stopListeningNow);
@@ -524,6 +570,21 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L);
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L);
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 8000L);
+        // while an answer is being recorded, the recogniser listens to the same audio through a pipe
+        sessionPipe = false;
+        sessionReady = false;
+        sessionHeard = false;
+        if (Build.VERSION.SDK_INT >= 33 && recorder.isRunning()) {
+            ParcelFileDescriptor rd = recorder.newPipe();
+            if (rd != null) {
+                i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, rd);
+                i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1);
+                i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
+                i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, VoiceRecorder.RATE);
+                sessionPipe = true;
+                sessionVoicedStart = recorder.voicedMs();
+            }
+        }
         listening = true;
         try {
             recognizer.startListening(i);
@@ -535,6 +596,7 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
 
     private void stopListeningNow() {
         listening = false;
+        recorder.closePipe();
         if (recognizer != null) {
             try {
                 recognizer.cancel();
@@ -547,6 +609,7 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
     private final RecognitionListener listener = new RecognitionListener() {
         @Override
         public void onReadyForSpeech(Bundle params) {
+            sessionReady = true;
             listenEvent("ready", "", -1);
         }
 
@@ -558,7 +621,7 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         @Override
         public void onRmsChanged(float rmsdB) {
             long now = SystemClock.uptimeMillis();
-            if (now - lastRms < 90) return;
+            if (recorder.isRunning() || now - lastRms < 90) return;
             lastRms = now;
             listenEvent("rms", String.valueOf(rmsdB), -1);
         }
@@ -574,6 +637,13 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         @Override
         public void onError(int error) {
             if (!listening) return;
+            if (sessionPipe && !sessionHeard && recorder.isRunning()) {
+                boolean refused = !sessionReady && (error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_CLIENT);
+                boolean deaf = (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH)
+                        && turnHeard == 0 && recorder.voicedMs() - sessionVoicedStart > 2500;
+                // the recogniser can't use our audio: stop recording on this phone and let it use the microphone
+                if (refused || deaf) recorder.markBroken(refused ? "recogniser refused the audio pipe (" + error + ")" : "recogniser heard nothing through the pipe");
+            }
             listenEvent("error", String.valueOf(error), -1);
         }
 
@@ -584,7 +654,11 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
             float[] conf = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
             String t = texts != null && !texts.isEmpty() ? texts.get(0) : "";
             float c = conf != null && conf.length > 0 ? conf[0] : -1f;
-            if (!t.isEmpty()) listenEvent("final", t, c);
+            if (!t.isEmpty()) {
+                sessionHeard = true;
+                turnHeard++;
+                listenEvent("final", t, c);
+            }
             listenEvent("end", "", -1);
         }
 
@@ -592,7 +666,11 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
         public void onPartialResults(Bundle partial) {
             if (!listening) return;
             ArrayList<String> texts = partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (texts != null && !texts.isEmpty() && !texts.get(0).isEmpty()) listenEvent("partial", texts.get(0), -1);
+            if (texts != null && !texts.isEmpty() && !texts.get(0).isEmpty()) {
+                sessionHeard = true;
+                turnHeard++;
+                listenEvent("partial", texts.get(0), -1);
+            }
         }
 
         @Override
@@ -629,11 +707,13 @@ public class SpeechBridge implements TextToSpeech.OnInitListener {
             pending = null;
             if (tts != null && ttsReady) tts.stop();
             stopListeningNow();
+            recorder.stopAndDiscard();
         });
     }
 
     void shutdown() {
         muteBeeps(false);
+        recorder.clearAll();
         if (recognizer != null) {
             try {
                 recognizer.destroy();

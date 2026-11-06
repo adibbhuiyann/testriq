@@ -1,0 +1,188 @@
+// ===== Testriq worker · PART 6 of 6 — paste this right after part 5 =====
+async function resetConfirm(DB, b, now) {
+  const email = cleanEmail(b.email);
+  const code = String(b.code || '').replace(/\D/g, '');
+  const password = checkPassword(b.password);
+  const r = await DB.prepare('SELECT * FROM resets WHERE email = ?').bind(email).first();
+  if (!r || r.expires < now) throw fail(400, 'CODE_EXPIRED', 'This code has expired. Ask for a new one.');
+  if ((r.tries || 0) >= 5) throw fail(429, 'TOO_MANY_ATTEMPTS', 'Too many wrong codes. Ask for a new one.');
+  if (code.length !== 6 || !sameText(await sha256(email + ':' + code), r.hash)) {
+    await DB.prepare('UPDATE resets SET tries = tries + 1 WHERE email = ?').bind(email).run();
+    throw fail(400, 'WRONG_CODE', "That code isn't right. Check the email and try again.");
+  }
+  const u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  if (!u) throw fail(404, 'NOT_FOUND', 'No Testriq account uses this email.');
+  const salt = randomHex(16);
+  await DB.batch([
+    DB.prepare('UPDATE users SET salt = ?, hash = ?, fails = 0, locked = 0 WHERE uid = ?').bind(salt, await pbkdf2(password, salt), u.uid),
+    DB.prepare('DELETE FROM sessions WHERE uid = ?').bind(u.uid),
+    DB.prepare('DELETE FROM resets WHERE email = ?').bind(email),
+  ]);
+  return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null };
+}
+
+/* ---------------------------------------------------------------- Google sign-in
+   The app opens auth.html, Google signs the learner in and gives an ID token; Google itself
+   confirms that token here, and the learner gets a Testriq account for that (verified) email. */
+async function googleSignIn(DB, b, env, now) {
+  const ids = String(env.GOOGLE_CLIENT_ID || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) throw fail(501, 'NO_GOOGLE', "Google sign-in isn't set up on this server yet.");
+  const token = str(b.idToken, 4096);
+  if (!token) throw fail(400, 'GOOGLE_FAILED', 'Google sign-in did not complete. Please try again.');
+  const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token));
+  const g = await r.json().catch(() => ({}));
+  const verified = g.email_verified === true || g.email_verified === 'true';
+  if (!r.ok || !ids.includes(g.aud) || !['accounts.google.com', 'https://accounts.google.com'].includes(g.iss) || Number(g.exp) * 1000 < now || !verified || !g.email)
+    throw fail(401, 'GOOGLE_FAILED', 'Google sign-in could not be confirmed. Please try again.');
+  const email = cleanEmail(g.email);
+  let u = await DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  let created = false;
+  if (!u) {
+    const uid = 'c-' + randomHex(12);
+    const salt = randomHex(16);
+    const name = str(g.name, 60);
+    await DB.prepare('INSERT INTO users (email, uid, name, salt, hash, created, updated, data, provider) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)')
+      .bind(email, uid, name, salt, await pbkdf2(randomHex(24), salt), now, 'google')
+      .run();
+    u = { email, uid, name, updated: 0, data: null };
+    created = true;
+  }
+  return { ...publicUser(u, await newSession(DB, u.uid)), data: u.data || null, created, photo: str(g.picture, 500) };
+}
+
+/* ---------------------------------------------------------------- fair daily limits
+   Counted per phone (the app's X-Testriq-Device id) and per internet address, in D1.
+   Many people can share one address (mobile networks), so those limits are generous. */
+const LIMITS = {
+  judge: { device: 30, ip: 200 },
+  voice: { device: 15, ip: 100 },
+  writing: { device: 25, ip: 150 },
+  followup: { device: 700, ip: 5000 },
+  weekly: { device: 12, ip: 100 },
+  sync: { device: 600, ip: 6000 },
+  signup: { ip: 20 },
+  login: { ip: 150 },
+  reset: { ip: 15 },
+  google: { ip: 100 },
+};
+const AI_KINDS = new Set(['judge', 'voice', 'writing', 'weekly']);
+async function limit(env, req, kind) {
+  const L = LIMITS[kind];
+  if (!env.DB || !L) return;
+  const DB = await database(env);
+  const day = today();
+  const dev = (req.headers.get('X-Testriq-Device') || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 48);
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  const checks = [];
+  if (L.device && dev.length >= 8) checks.push(['d:' + dev, L.device]);
+  if (L.ip) checks.push(['i:' + ip, L.ip]);
+  if (AI_KINDS.has(kind)) checks.push(['all', Number(env.DAILY_AI_CAP) || 3000]);
+  const up = 'INSERT INTO usage (day, who, kind, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, who, kind) DO UPDATE SET n = n + 1 RETURNING n';
+  const res = await DB.batch(checks.map(([who]) => DB.prepare(up).bind(day, who, who === 'all' ? 'ai' : kind)));
+  if (Math.random() < 0.01) await DB.prepare('DELETE FROM usage WHERE day < ?').bind(day).run().catch(() => {});
+  checks.forEach(([who, max], i) => {
+    const n = res[i]?.results?.[0]?.n || 0;
+    if (n <= max) return;
+    const what = { judge: 'speaking marks', voice: 'voice marks', writing: 'writing marks', weekly: 'weekly reports', followup: 'examiner questions', sync: 'syncs' }[kind] || 'attempts';
+    const msg =
+      who === 'all'
+        ? "Testriq's AI examiner has reached today's limit. The on-device estimate is shown — try AI marking again tomorrow."
+        : `You've reached today's limit of ${max} AI ${what}. It resets at midnight (GMT). The on-device estimate is shown for now.`;
+    throw Object.assign(new Error(kind === 'signup' || kind === 'login' || kind === 'reset' || kind === 'google' ? 'Too many attempts from this network today. Please try again tomorrow.' : msg), {
+      status: 429,
+      code: 'DAILY_LIMIT',
+      limit: true,
+    });
+  });
+}
+const ACCOUNT_KIND = { 'account.signup': 'signup', 'account.login': 'login', 'account.resetRequest': 'reset', 'account.resetConfirm': 'login', 'account.google': 'google', 'account.pull': 'sync', 'account.push': 'sync' };
+
+/* ---------------------------------------------------------------- router */
+export default {
+  async fetch(req, env, ctx) {
+    const origin = req.headers.get('Origin') || '';
+    const allowed = [...DEFAULT_ORIGINS, ...(env.ALLOWED || '').split(',').map((x) => x.trim()).filter(Boolean)];
+    const ok = !origin || allowed.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const cors = {
+      'Access-Control-Allow-Origin': ok && origin ? origin : allowed[0],
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Testriq-Device, X-Testriq-App',
+      'Access-Control-Max-Age': '86400',
+      Vary: 'Origin',
+    };
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    if (!ok) return json({ error: 'Origin not allowed' }, 403, cors);
+    if (req.method === 'GET') {
+      return json(
+        {
+          ok: true,
+          service: 'Testriq AI examiner',
+          version: '1.0.3',
+          configured: !!env.GEMINI_KEY,
+          accounts: !!env.DB,
+          voice: !!env.GEMINI_KEY,
+          reset: !!(env.DB && env.BREVO_KEY && env.MAIL_FROM),
+          google: !!(env.DB && env.GOOGLE_CLIENT_ID),
+          limits: !!env.DB,
+          models: SCORING_MODELS,
+        },
+        200,
+        cors,
+      );
+    }
+    if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
+    // Only Testriq talks to this server: the app and website (their origins) or a client that names itself.
+    const app = req.headers.get('X-Testriq-App') || '';
+    if (!origin && !/^testriq\/\d/.test(app)) return json({ error: 'Unknown client' }, 403, cors);
+    try {
+      const type = req.headers.get('Content-Type') || '';
+      if (type.includes('multipart/form-data')) {
+        if (Number(req.headers.get('Content-Length') || 0) > 7_000_000) return json({ error: 'Request too large' }, 413, cors);
+        const form = await req.formData();
+        const action = form.get('action');
+        if (action === 'judgeVoice') {
+          await limit(env, req, 'voice');
+          return json(await judgeVoice(form, env, ctx), 200, cors);
+        }
+        if (action !== 'assess') return json({ error: 'Unknown action' }, 400, cors);
+        await limit(env, req, 'voice');
+        return json(await assessAudio(form, env), 200, cors);
+      }
+      const text = await req.text();
+      if (text.length > 400_000) return json({ error: 'Request too large' }, 413, cors);
+      let b;
+      try {
+        b = JSON.parse(text);
+      } catch {
+        return json({ error: 'Bad JSON' }, 400, cors);
+      }
+      if (typeof b.action === 'string' && b.action.startsWith('account.')) {
+        if (ACCOUNT_KIND[b.action]) await limit(env, req, ACCOUNT_KIND[b.action]);
+        return json(await account(b.action, b, env), 200, cors);
+      }
+      const KIND = { ping: 'followup', followup: 'followup', judge: 'judge', writing: 'writing', weekly: 'weekly' };
+      if (KIND[b.action]) await limit(env, req, KIND[b.action]);
+      switch (b.action) {
+        case 'ping': {
+          const r = await gemini(env, [{ text: 'Return {"ok":true}' }], { fast: true, maxTokens: 20, timeout: 15000 });
+          return json({ ok: true, model: r.model }, 200, cors);
+        }
+        case 'followup':
+          return json(await followup(b, env), 200, cors);
+        case 'judge':
+          return json(await judge(b, env), 200, cors);
+        case 'writing':
+          return json(await writing(b, env), 200, cors);
+        case 'weekly':
+          return json(await weekly(b, env), 200, cors);
+        default:
+          return json({ error: 'Unknown action' }, 400, cors);
+      }
+    } catch (e) {
+      const status = e.status || 500;
+      return json({ error: String(e.message || e).slice(0, 300), code: e.code || undefined, limit: e.limit || undefined }, status, cors);
+    }
+  },
+};
+
+// ===== end of PART 6 of 6 — the whole worker is in. Tap Deploy. =====

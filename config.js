@@ -24,11 +24,18 @@ window.TESTRIQ_CONFIG = {
     appId: ""
   },
 
-  // 3) Sign-in buttons (they only work once Firebase is set up above).
-  googleSignIn: true,
-  facebookSignIn: true,
+  // 3) Google sign-in WITHOUT Firebase (accounts on your Testriq server, aiUrl above).
+  //    Paste your Google OAuth "Web application" client ID here, and the same ID into the
+  //    Worker's GOOGLE_CLIENT_ID variable (SETUP.md step 6). Empty = no Google button.
+  //    Example: "1234567890-abc123.apps.googleusercontent.com"
+  googleClientId: "",
 
-  // 4) Public pages (GitHub Pages).
+  // 4) Sign-in buttons. Google appears once googleClientId (or Firebase) is set;
+  //    Facebook needs Firebase.
+  googleSignIn: true,
+  facebookSignIn: false,
+
+  // 5) Public pages (GitHub Pages).
   authPage: "https://adibbhuiyann.github.io/testriq/auth.html",
   privacyUrl: "https://adibbhuiyann.github.io/testriq/privacy.html",
   deleteAccountUrl: "https://adibbhuiyann.github.io/testriq/privacy.html#delete-account",

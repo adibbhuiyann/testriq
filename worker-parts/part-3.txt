@@ -1,5 +1,18 @@
-// ===== Testriq worker · PART 3 of 4 — paste this right after part 2 =====
-async function judge(b, env) {
+// ===== Testriq worker · PART 3 of 6 — paste this right after part 2 =====
+const SPEAKING_OUTPUT = `Return ONLY this JSON:
+{"criteria":[{"key":"fluency","observation":"2-3 sentences quoting evidence (write this FIRST, then decide the score)","score":3-9 whole number,"practice":"one specific exercise"},{"key":"vocabulary",...},{"key":"grammar",...},{"key":"pronunciation","observation":"...","score":whole number or null,...}],
+"summary":"3 sentences: overall level, the main reason, the most important next step",
+"sufficientEvidence":true|false,"confidence":"low"|"medium"|"high",
+"strengths":["specific, quoting the candidate"] (2-4),
+"improvements":[{"issue":"short title","evidence":"quote or fact from the answers","action":"concrete practice"}] (2-4),
+"corrections":[{"said":"exact words used","better":"natural correct version","why":"short reason"}] (up to 6, only real errors),
+"plan":[{"day":"Day 1","task":"..."}] (5-7 days, specific to this candidate),
+"nextBandTips":"what exactly would move this candidate up half a band",
+"vocabulary":[{"word":"a better word or phrase","instead":"the plainer word this candidate actually used, or empty","meaning":"short meaning","example":"a natural example sentence on the candidate's own topic"}] (3-5 upgrades drawn from THIS candidate's answers),
+"limitations":["honest limits of this assessment"] (1-3)}`;
+
+/* ---------------------------------------------------------------- judge (transcript) */
+async function judge(b, env, voice = null) {
   const answers = arr(b.answers, 40).map((a) => ({
     part: str(a?.part, 60),
     question: str(a?.question, 500),
@@ -30,15 +43,26 @@ MEASURED FACTS (computed by the app, trust these):
 - Possible slips flagged automatically (check them yourself): ${arr(m.likelySlips, 10).map((x) => str(x, 80)).join('; ') || 'none'}
 - Part 2 long turn: ${m.part2 ? `${Number(m.part2.words) || 0} words in ${Number(m.part2.sec) || 0} s` : 'not in this test'}
 - Answers were ${typed ? 'TYPED (so pronunciation must be null and fluency judged from organisation only)' : 'SPOKEN and transcribed automatically'}
-
+${
+  voice
+    ? `
+YOU CAN ALSO HEAR THE CANDIDATE. The attached recording holds ${voice.meta.length} of the answers, in order, with a short silence between them:
+${voice.meta.map((x) => `- ${x.start}–${x.end} s: [${x.part}] ${x.question}`).join('\n')}
+Judge PRONUNCIATION from what you hear: individual sounds, word stress, sentence stress, rhythm, intonation, chunking and how easy the candidate is to understand. Quote words that were mispronounced, if any. Use the audio to check fluency too (pace, hesitation, self-correction). The transcript comes from speech recognition and may contain mistakes: where the audio shows the candidate said something different, trust the audio and do not mark recognition errors as the candidate's grammar or vocabulary mistakes. Answers that are not in the recording are judged from the transcript.
+`
+    : ''
+}
 THE TEST (question → candidate's answer):
 ${answers.map((a, i) => `#${i + 1} [${a.part}] Q: ${a.question}\nA: ${a.answer || '(no answer)'}${a.seconds ? ` (${Math.round(a.seconds)} s, ${a.words} words${a.confidence != null && a.confidence >= 0 ? `, recognition ${a.confidence.toFixed(2)}` : ''}${a.delay != null ? `, started after ${a.delay} s` : ''}${a.pauses ? `, ${a.pauses} long pause${a.pauses === 1 ? '' : 's'}` : ''})` : ''}`).join('\n\n')}
 
 ${SPEAKING_OUTPUT}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.35, maxTokens: 6000 });
-  const assessment = shapeSpeaking(data, { typed, source: 'ai-transcript' });
+  const parts = [{ text: prompt }];
+  if (voice) parts.push({ file_data: { mime_type: voice.mime, file_uri: voice.uri } });
+  const { data, model } = await gemini(env, parts, { temperature: 0.35, maxTokens: 6500, timeout: voice ? 90000 : 55000 });
+  const assessment = shapeSpeaking(data, { typed, source: voice ? 'audio-ai' : 'ai-transcript' });
   assessment.model = model;
-  if (!typed && (m.confidence == null || m.confidence < 0))
+  if (voice) assessment.voiceSeconds = Math.round(voice.meta.reduce((n, x) => n + (Number(x.end) - Number(x.start) || 0), 0));
+  if (!voice && !typed && (m.confidence == null || m.confidence < 0))
     assessment.limitations.push('Pronunciation was estimated from the transcript only; record your answers for a fuller check.');
   return { assessment };
 }
@@ -78,103 +102,44 @@ ${SPEAKING_OUTPUT.replace('"limitations"', '"transcript":"what you heard, all re
   return { assessment: a };
 }
 
-/* ---------------------------------------------------------------- writing */
-async function writing(b, env) {
-  const task = b.task === 'ielts-t1' ? 'ielts-t1' : 'ielts-t2';
-  const t1 = task === 'ielts-t1';
-  const response = str(b.response, 12000);
-  const words = (response.match(/\S+/g) || []).length;
-  const prompt = `You are a certified IELTS Writing examiner. Mark this IELTS Academic Writing ${t1 ? 'Task 1 (report on a visual, minimum 150 words)' : 'Task 2 (essay, minimum 250 words)'} strictly against the public band descriptors.
-
-Criteria (whole bands 1–9):
-- ${t1 ? '"ta" Task Achievement: covers requirements, clear overview of main trends/differences/stages, key features highlighted and accurately supported with data, no opinion.' : '"tr" Task Response: addresses all parts of the task, clear position throughout, ideas extended and supported, relevant.'}
-- "cc" Coherence & Cohesion: logical organisation, paragraphing, a range of cohesive devices used appropriately (not mechanical), referencing.
-- "lr" Lexical Resource: range, precision, collocation, less common vocabulary, spelling and word formation.
-- "gr" Grammatical Range & Accuracy: mix of simple and complex structures, proportion of error-free sentences, punctuation.
-
-Use the full range 3–9 and judge only the evidence: weak scripts get 4 or below, strong ones 7–8, near-native ones 8.5–9. Criteria often differ by 1–2 bands. Under the word minimum: ${t1 ? 'Task Achievement' : 'Task Response'} is penalised (under ${t1 ? 150 : 250} words → max 5 for that criterion; under ${t1 ? 100 : 170} words → max 4). Memorised, off-topic or copied-prompt text is penalised. ${t1 ? 'No overview → Task Achievement max 5.' : 'No clear position when asked → Task Response max 5.'} Each criterion is judged independently.
-
-THE TASK:
-${str(b.prompt, 3000)}
-${b.visual ? 'Key data shown in the visual: ' + str(b.visual, 2500) : ''}
-
-THE CANDIDATE'S RESPONSE (${words} words):
-"""${response}"""
-
-Return ONLY this JSON:
-{"criteria":[{"key":"${t1 ? 'ta' : 'tr'}","observation":"2-3 sentences with quotes (write this first)","score":n,"practice":"one specific next step"},{"key":"cc",...},{"key":"lr",...},{"key":"gr",...}],
-"summary":"3 sentences","strengths":["..."] (2-4),"improvements":[{"issue":"...","action":"..."}] (2-4),
-"corrections":[{"excerpt":"exact text from the response","fix":"corrected text","why":"short reason","kind":"grammar"|"spelling"|"punctuation"|"vocabulary"}] (up to 12, real errors only),
-"rewrite":"an improved version of ONE weak sentence or paragraph from the response, at band 8 level",
-"confidence":"low"|"medium"|"high"}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 7000 });
-  const labels = { ta: 'Task achievement', tr: 'Task response', cc: 'Coherence & cohesion', lr: 'Lexical resource', gr: 'Grammatical range & accuracy' };
-  const keys = [t1 ? 'ta' : 'tr', 'cc', 'lr', 'gr'];
-  const criteria = keys.map((key) => {
-    const c = arr(data.criteria, 8).find((x) => x && x.key === key) || {};
-    return { key, label: labels[key], score: wholeBand(c.score) ?? 5, observation: str(c.observation, 900), practice: str(c.practice, 500) };
+/* ---------------------------------------------------------------- judge with the recorded answers
+   The app sends one WAV (all answers, 16 kHz mono, at most about 2 minutes). It is passed to
+   Gemini's file store as it arrived — no re-encoding here, which keeps the Worker's CPU time tiny —
+   used for this one marking, then deleted. */
+const GEMINI = 'https://generativelanguage.googleapis.com';
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function uploadAudio(env, blob) {
+  const mime = 'audio/wav';
+  const start = await fetch(`${GEMINI}/upload/v1beta/files`, {
+    method: 'POST',
+    headers: {
+      'x-goog-api-key': env.GEMINI_KEY,
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(blob.size),
+      'X-Goog-Upload-Header-Content-Type': mime,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: 'testriq-speaking-answers' } }),
   });
-  return {
-    assessment: {
-      source: 'ai',
-      model,
-      overall: ieltsRound(criteria.reduce((n, c) => n + c.score, 0) / 4),
-      criteria,
-      summary: str(data.summary, 900),
-      strengths: arr(data.strengths, 5).map((s) => str(s, 300)).filter(Boolean),
-      improvements: arr(data.improvements, 5).map((i) => ({ issue: str(i?.issue, 120), action: str(i?.action, 400) })).filter((i) => i.issue),
-      corrections: arr(data.corrections, 15)
-        .map((c) => ({ excerpt: str(c?.excerpt, 200), fix: str(c?.fix, 200), why: str(c?.why, 200), kind: ['grammar', 'spelling', 'punctuation', 'vocabulary'].includes(c?.kind) ? c.kind : 'grammar' }))
-        .filter((c) => c.excerpt && c.fix),
-      rewrite: str(data.rewrite, 1500),
-      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'medium',
-    },
-  };
+  const url = start.headers.get('x-goog-upload-url');
+  if (!start.ok || !url) throw fail(502, 'UPLOAD_FAILED', `The recording could not be prepared for marking (${start.status}).`);
+  const up = await fetch(url, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': env.GEMINI_KEY, 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
+    body: blob,
+  });
+  const d = await up.json().catch(() => ({}));
+  let f = d.file;
+  if (!up.ok || !f || !f.uri) throw fail(502, 'UPLOAD_FAILED', `The recording could not be uploaded for marking (${up.status}).`);
+  for (let k = 0; k < 8 && f.state === 'PROCESSING'; k++) {
+    await wait(700);
+    const r = await fetch(`${GEMINI}/v1beta/${f.name}`, { headers: { 'x-goog-api-key': env.GEMINI_KEY } });
+    if (r.ok) f = await r.json();
+  }
+  if (f.state === 'FAILED') throw fail(502, 'UPLOAD_FAILED', 'The recording could not be read.');
+  return { name: f.name, uri: f.uri, mime: f.mimeType || mime };
 }
+const deleteAudio = (env, name) => fetch(`${GEMINI}/v1beta/${name}`, { method: 'DELETE', headers: { 'x-goog-api-key': env.GEMINI_KEY } }).catch(() => {});
 
-/* ---------------------------------------------------------------- weekly estimate */
-async function weekly(b, env) {
-  const s = b.summary || {};
-  const prompt = `You are a senior IELTS examiner and coach. A learner has finished one week of daily practice in the Testriq app. Estimate their CURRENT IELTS Academic band for each skill and overall, from the evidence below.
-
-Rules:
-- Be realistic and strict; do not inflate. Base each skill only on its evidence. Small samples (1–2 short tests) must be treated cautiously: move towards the middle of the evidence, mark confidence "low".
-- Listening/Reading: the app gives raw accuracy and the official raw-score conversion; short practice sets are easier than a full paper, so a skill band can be up to 0.5 below the converted value when samples are small.
-- Writing/Speaking: use the examiner band scores given (AI or on-device estimates).
-- A skill with no evidence gets band null.
-- Consider consistency and trend (improving or declining) across the week.
-
-Target band: ${str(b.target, 20) || 'not set'}. Days the daily goal was completed: ${Number(b.daysCompleted) || 0} of 7.
-
-EVIDENCE:
-${JSON.stringify(s).slice(0, 12000)}
-
-Return ONLY this JSON:
-{"skills":{"listening":band or null,"reading":band or null,"writing":band or null,"speaking":band or null} (half bands allowed),
-"confidence":"low"|"medium"|"high",
-"summary":"3-4 sentences: where they stand, the gap to the target, the single most important priority",
-"skillNotes":{"listening":"1-2 sentences","reading":"...","writing":"...","speaking":"..."},
-"strengths":["..."] (2-3),"priorities":["..."] (2-4, concrete),
-"nextWeek":[{"day":"Monday","task":"..."}] (7 entries, realistic for the target)}`;
-  const { data, model } = await gemini(env, [{ text: prompt }], { temperature: 0.2, maxTokens: 5000 });
-  const skills = {};
-  for (const k of ['listening', 'reading', 'writing', 'speaking']) skills[k] = data.skills?.[k] == null ? null : band(data.skills[k]);
-  const have = Object.values(skills).filter((v) => v != null);
-  return {
-    weekly: {
-      source: 'ai',
-      model,
-      skills,
-      overall: have.length ? ieltsRound(have.reduce((a, c) => a + c, 0) / have.length) : null,
-      complete: have.length === 4,
-      confidence: ['low', 'medium', 'high'].includes(data.confidence) ? data.confidence : 'low',
-      summary: str(data.summary, 1200),
-      skillNotes: Object.fromEntries(['listening', 'reading', 'writing', 'speaking'].map((k) => [k, str(data.skillNotes?.[k], 400)])),
-      strengths: arr(data.strengths, 4).map((x) => str(x, 300)).filter(Boolean),
-      priorities: arr(data.priorities, 5).map((x) => str(x, 300)).filter(Boolean),
-      nextWeek: arr(data.nextWeek, 7).map((d) => ({ day: str(d?.day, 30), task: str(d?.task, 300) })).filter((d) => d.day && d.task),
-      created: new Date().toISOString(),
-    },
-  };
-}
-// ===== end of PART 3 of 4 — now paste part 4 =====
+// ===== end of PART 3 of 6 — now paste part 4 =====

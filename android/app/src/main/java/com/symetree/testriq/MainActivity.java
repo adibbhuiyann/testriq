@@ -38,6 +38,8 @@ import android.window.OnBackInvokedDispatcher;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
@@ -318,6 +320,20 @@ public class MainActivity extends Activity {
             Map<String, String> headers = new HashMap<>();
             headers.put("Cache-Control", "no-cache");
             if (path.contains("..")) {
+                return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers,
+                        new ByteArrayInputStream(new byte[0]));
+            }
+            // a recorded speaking answer, read by the page before it is sent for pronunciation marking
+            if (path.startsWith("/__rec/")) {
+                File f = speech != null ? speech.recordingFile(path.substring(7)) : null;
+                if (f != null) {
+                    try {
+                        WebResourceResponse r = new WebResourceResponse("audio/wav", null, new FileInputStream(f));
+                        r.setResponseHeaders(headers);
+                        return r;
+                    } catch (IOException ignored) {
+                    }
+                }
                 return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers,
                         new ByteArrayInputStream(new byte[0]));
             }

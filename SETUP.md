@@ -1,7 +1,7 @@
 # Testriq — setup, Play Store and updates
 
 Everything below can be done from a phone browser. Do the steps in order.
-Steps 1–2 give you the app files. Steps 3–4 switch on the Gemini AI examiner and cloud accounts (one free Cloudflare Worker does both). Step 5 is optional Google/Facebook sign-in. Step 6 puts the app on Google Play. Step 7 covers updates.
+Steps 1–2 give you the app files. Steps 3–4 switch on the Gemini AI examiner and cloud accounts (one free Cloudflare Worker does both). Step 5 adds password-reset emails and step 6 Google sign-in (both free, optional). Step 7 is the optional Firebase alternative. Step 8 puts the app on Google Play. Step 9 covers updates.
 
 > **Important:** until you finish steps 3 and 4 and put the Worker address in `config.js`, the app runs fully offline: speaking and writing are marked by the on-device live judge, and accounts live on the phone (protected by Android backup and backup files). The app works, but the Gemini examiner and "log in on any phone" need the Worker.
 
@@ -57,7 +57,9 @@ This makes accounts and progress survive deleting the app, a new phone or a fact
 
 What learners see: "Create an account" and "Log in with email" now save to the cloud. Anyone who already made an account on their phone gets a **Save online** button in Settings (and is moved online automatically the next time they log in). Passwords are stored only as salted PBKDF2 hashes.
 
-Password reset by email isn't available with Worker accounts (it needs an email service). If a learner forgets their password, Firebase (step 5) offers reset emails; otherwise they can contact support.
+Password reset by email needs an email service: step 5 sets it up for free.
+
+**Fair use (automatic):** with the database bound, the Worker counts AI marks per phone and per internet address each day — 30 speaking marks, 15 voice marks, 25 writing marks and 12 weekly reports per phone, and 3,000 AI marks a day for everyone together. A learner who reaches a limit sees the on-device band and a friendly message. To change the overall cap, add a **Text** variable `DAILY_AI_CAP` (for example `5000`). Requests that don't come from the Testriq app or website are refused.
 
 Without this step, accounts are kept on the phone. They are still protected: the Android app copies them into the phone's Google backup (restored automatically when Testriq is reinstalled on the same Google account), and learners can save a **backup file** in Settings → Data & privacy and restore it from the login screen.
 
@@ -73,9 +75,37 @@ Without this step, accounts are kept on the phone. They are still protected: the
 
 The Gemini key is not in the repository: it stays a Secret (`GEMINI_KEY`) in the dashboard, and deploys keep it.
 
-## 5. Optional: Firebase accounts and Google/Facebook sign-in
+## 5. Password reset by email (Brevo, free, 10 minutes)
 
-Only needed if you want the Google/Facebook buttons or password-reset emails. When Firebase is set up, it is used for accounts instead of the Worker.
+Learners who forget their password get a 6-digit code by email and choose a new one in the app. Brevo's free plan sends 300 emails a day.
+
+1. Sign up at **brevo.com** (free plan).
+2. **Senders, domains & dedicated IPs → Senders → Add a sender**: name `Testriq`, email = an address you can open (for example `symetree4@gmail.com`). Brevo emails you a link — open it to verify the sender.
+   (Better delivery later: verify your own domain under **Domains** and use an address on it.)
+3. **SMTP & API → API keys → Generate a new API key** → name it `testriq` → copy the key (it starts with `xkeysib-`).
+4. In Cloudflare, open the `testriq` Worker → **Settings → Variables and Secrets → Add**:
+   - Type **Secret**, name `BREVO_KEY`, value = the Brevo key.
+   - Type **Text**, name `MAIL_FROM`, value = the sender email you verified in step 2.
+   Tap **Deploy**.
+5. Check it: the Worker address should now show `"reset": true`. In the app: **Log in → Forgot password?** → enter your email → you receive a code.
+
+## 6. Google sign-in (free, 10 minutes)
+
+Learners tap **Continue with Google**, choose their Google account, and come straight back to Testriq, signed in. Their account lives on your Testriq server like an email account (so their progress also comes back after reinstalling).
+
+1. Open **console.cloud.google.com** → top bar → **Select a project → New project** → name `Testriq` → **Create**.
+2. **APIs & Services → OAuth consent screen** (Google Auth Platform → **Get started**): app name `Testriq`, support email = yours, audience **External**, contact email = yours → **Create**. Under **Branding**, add the app domain `adibbhuiyann.github.io` and the privacy policy link `https://adibbhuiyann.github.io/testriq/privacy.html`. Under **Audience**, tap **Publish app** (sign-in only asks for name, email and photo, so no review is needed).
+3. **Clients → Create client** (or **Credentials → Create credentials → OAuth client ID**):
+   - Application type: **Web application**, name `Testriq web`.
+   - **Authorised JavaScript origins → Add URI**: `https://adibbhuiyann.github.io`
+   - **Create**, then copy the **Client ID** (it ends with `.apps.googleusercontent.com`).
+4. In this repository, open `config.js` → ✏️ edit → paste it into `googleClientId: "..."` → **Commit changes**.
+5. In Cloudflare, open the `testriq` Worker → **Settings → Variables and Secrets → Add** → Type **Text**, name `GOOGLE_CLIENT_ID`, value = the same Client ID → **Deploy**.
+6. Check it: the Worker address shows `"google": true`. Rebuild the app (it builds by itself after the commit). The welcome screen now has **Continue with Google**. It opens a secure Chrome tab with Google's button, then returns to the app.
+
+## 7. Optional: Firebase instead of the Testriq server
+
+Not needed if you did steps 4–6. Firebase is an alternative home for accounts, with Facebook sign-in. When Firebase is set up, it is used for accounts instead of the Worker.
 
 1. **console.firebase.google.com → Add project** → name `testriq` → create. You don't need Google Analytics.
 2. **Build → Authentication → Get started → Sign-in method**. Enable **Email/Password** and **Google**.
@@ -104,9 +134,9 @@ Google sign-in now works on the website and in the app (it opens a secure Chrome
 4. In Facebook: **Facebook Login → Settings → Valid OAuth Redirect URIs** → paste that URI → save.
 5. Switch the Facebook app to **Live** mode.
 
-To hide a button you don't want, set `googleSignIn` or `facebookSignIn` to `false` in `config.js`.
+To hide a button you don't want, set `googleSignIn` or `facebookSignIn` to `false` in `config.js` (Facebook is off by default: set it to `true` after these steps).
 
-## 6. Publish on Google Play
+## 8. Publish on Google Play
 
 1. **play.google.com/console** → create a developer account (one-time US$25 fee, identity verification).
 2. **Create app**: name *Testriq*, language English, App, Free.
@@ -118,22 +148,29 @@ To hide a button you don't want, set `googleSignIn` or `facebookSignIn` to `fals
    - Content rating questionnaire: Education/Reference. Target audience: **13+** (not designed for children).
    - Data safety (what the app does):
      - *Personal info → Email address, Name*: collected, optional (only with an account), for **Account management**; encrypted in transit; users can request deletion.
-     - *Audio → Voice or sound recordings*: processed on the device by the phone's speech service, not stored by Testriq. Declare it only if the form asks about data that is processed but not stored.
+     - *Audio → Voice or sound recordings*: **collected** (IELTS speaking answers are sent to the AI examiner for pronunciation marking), **optional** (Settings → "Mark my pronunciation from my voice"), purpose **App functionality**; not shared (Google Gemini processes it for you as a service provider); encrypted in transit; deleted after marking.
      - *App activity → Other user-generated content* (answers sent for AI marking): collected for **App functionality**; encrypted in transit.
+     - *Device or other IDs*: **collected** (a random ID made by the app, used to share the free AI marks fairly), purpose **Fraud prevention, security, and compliance**; not shared.
+     - Microphone use is declared automatically from the app's permissions.
      - Account deletion URL: `https://adibbhuiyann.github.io/testriq/privacy.html#delete-account`
-5. **Testing → Closed testing → Create track** → upload the `.aab` → add testers (an email list or a Google Group) → roll out.
-   New personal developer accounts must run a closed test with **at least 12 testers who stay opted in for 14 days in a row**. After that, you can **apply for production access**.
+5. **Closed test (required for new personal accounts): at least 12 testers, opted in for 14 days in a row.**
+   1. **Test and release → Testing → Closed testing → Create track** (or use the default *Alpha* track) → **Create new release** → upload the newest `.aab` from Releases → release name `1.0.3` → **Save → Review → Start rollout**.
+   2. **Testers** tab: choose **Google Groups** (easiest: create a free group at groups.google.com, for example `testriq-testers@googlegroups.com`, and invite people) or an **email list** (paste their Gmail addresses). Add at least **15** people so you stay above 12 if someone leaves.
+   3. Copy the **opt-in link** on the Testers tab and send it to everyone. Each tester opens it **on their Android phone, signed in with the same Google account you added**, taps **Become a tester**, then installs Testriq from the Play Store link on that page.
+   4. Ask testers to keep the app installed, open it every day or two and send feedback (Play lets them leave private feedback). The 14 days count from when 12 testers have opted in — check **Closed testing → Testers**.
+   5. Keep uploading fixes to the same closed track during the test; it doesn't reset the 14 days.
+   6. After 14 days: **Dashboard → Apply for production** → answer the questions about your test (how you found testers, what feedback you got, what you changed). Google usually replies within about 7 days.
 6. When production access is approved: **Production → Create new release** → upload the newest `.aab` → roll out.
 
 Use **Play App Signing** (the default). Google then re-signs the app for users, and your upload key only proves that the update came from you.
 
-## 7. Updating the app later
+## 9. Updating the app later
 
 1. Change the app on GitHub, for example `index.html`, `config.js`, the question banks or `android/…`.
 2. Open `android/version.properties` and raise `VERSION_NAME` (for example `1.0.2` → `1.0.3`). This is the version users see.
 3. Commit to `main`. GitHub builds a new `.aab` automatically. The version code goes up by itself with every build, which Google Play requires.
 4. In Play Console, create a new release on the same track and upload the new `.aab`.
-5. If you changed `worker.js`, paste the new version into your Cloudflare Worker (**Edit code → Deploy**). The app works with the old Worker too, but the new one marks more accurately and adds cloud accounts.
+5. If you changed `worker.js` and connected automatic server updates (step 4), Cloudflare deploys it by itself. Otherwise paste it into your Cloudflare Worker (**Edit code → Deploy**), or paste the parts in `worker-parts/` one after another from a phone. The app works with an older Worker too, but new features (voice marking, reset codes, Google sign-in) need the new one.
 
 The website (GitHub Pages) uses the same `index.html`, so it updates at the same time.
 
