@@ -11,7 +11,7 @@ window.TESTRIQ_CONFIG = {
   //    and keeps accounts on the phone (plus Android backup and backup files).
   //    Fill it in to switch on the Gemini AI examiner and accounts that survive reinstalling
   //    (SETUP.md steps 3 and 4).
-  aiUrl: "",
+  aiUrl: "https://testriq.adibbhuiyan019.workers.dev",
 
   // 2) Optional: Firebase accounts (needed only for Google/Facebook sign-in).
   //    Your Firebase project's Web API key and project ID
