@@ -61,6 +61,18 @@ Password reset by email isn't available with Worker accounts (it needs an email 
 
 Without this step, accounts are kept on the phone. They are still protected: the Android app copies them into the phone's Google backup (restored automatically when Testriq is reinstalled on the same Google account), and learners can save a **backup file** in Settings → Data & privacy and restore it from the login screen.
 
+### Automatic server updates (recommended, one time)
+
+`wrangler.jsonc` tells Cloudflare how to deploy `worker.js` (Worker name `testriq`, the `DB` database). Connect it once and every change to `worker.js` on `main` goes live automatically, with no copying and pasting:
+
+1. **Workers & Pages → testriq → Settings → Build → Connect** (Git repository).
+2. Choose **GitHub**, allow Cloudflare to access `adibbhuiyann/testriq`, and pick branch **main**.
+3. Build command: leave empty. Deploy command: `npx wrangler deploy`. Root directory: `/`.
+4. Build watch paths (if offered): `worker.js` and `wrangler.jsonc`, so app-only changes don't redeploy the server.
+5. Save. Cloudflare deploys straight away; check the Worker address shows the latest `"version"`.
+
+The Gemini key is not in the repository: it stays a Secret (`GEMINI_KEY`) in the dashboard, and deploys keep it.
+
 ## 5. Optional: Firebase accounts and Google/Facebook sign-in
 
 Only needed if you want the Google/Facebook buttons or password-reset emails. When Firebase is set up, it is used for accounts instead of the Worker.
