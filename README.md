@@ -29,6 +29,11 @@ Testriq is an exam-practice app with a live AI speaking examiner, AI writing mar
 - **Live judge:** during IELTS speaking tests a live band meter updates after every answer, with a quick tip. It scores the four criteria from what you said (answer development, linking, vocabulary range, idioms, grammar range and slips) and how you said it (speaking rate, pauses, response delay, recognition clarity), across the full band range 3–9.
 - At the end, the AI examiner (when connected) marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, the live judge's full report is used.
 
+## Version 1.0.3.2
+
+- **AI marking is more reliable on slow connections.** The app now waits up to about two minutes (the server can take up to ~85 s when it has to try several AI models) and stops the clock once the reply starts arriving, so a reply is never cut off. A reply that arrives empty or broken is fetched again automatically.
+- When AI marking still can't finish, the message says why (busy, daily limit, no connection or a short code), instead of "incomplete report".
+
 ## Version 1.0.3.1
 
 - **Completed tests keep their green tick** after closing and reopening the app (before, they only came back after finishing another test).
