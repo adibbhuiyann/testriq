@@ -29,6 +29,13 @@ Testriq is an exam-practice app with a live AI speaking examiner, AI writing mar
 - **Live judge:** during IELTS speaking tests a live band meter updates after every answer, with a quick tip. It scores the four criteria from what you said (answer development, linking, vocabulary range, idioms, grammar range and slips) and how you said it (speaking rate, pauses, response delay, recognition clarity), across the full band range 3–9.
 - At the end, the AI examiner (when connected) marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, the live judge's full report is used.
 
+## Version 1.0.3.1
+
+- **Completed tests keep their green tick** after closing and reopening the app (before, they only came back after finishing another test).
+- **Practice shows every course:** IELTS, SAT and PTE, grouped by section with how many tests you've done; tap a section to open it.
+- **Question timer:** each Grammar & Vocabulary question (and every timed question) gets its full time. The next question's clock no longer runs while you read the explanation of the last one.
+- Releases are named by version only (for example "Testriq 1.0.3.1"), and Settings shows just the version.
+
 ## Version 1.0.3
 
 - **A new look.** One set of hand-drawn line icons across the whole app (they fill in on the selected tab), proper IELTS, SAT and PTE course icons, and the Inter typeface built in, so it looks the same on every phone.
