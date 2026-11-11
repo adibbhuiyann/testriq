@@ -29,6 +29,12 @@ Testriq is an exam-practice app with a live AI speaking examiner, AI writing mar
 - **Live judge:** during IELTS speaking tests a live band meter updates after every answer, with a quick tip. It scores the four criteria from what you said (answer development, linking, vocabulary range, idioms, grammar range and slips) and how you said it (speaking rate, pauses, response delay, recognition clarity), across the full band range 3–9.
 - At the end, the AI examiner (when connected) marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, the live judge's full report is used.
 
+## Version 1.0.3.3
+
+- **Grammar & Vocabulary tests are numbered by level:** Tests 1–20 Easy, 21–40 Medium, 41–60 Hard, 61–80 Advanced and 81–100 Expert.
+- The level key at the top (Easy ≈ Band 5 … Expert ≈ Band 9) and the level tag on every test stay as they were. Each level now starts with a heading showing its test numbers, the time per question and how many of its tests you've finished. Tap a level in the key to jump straight to it.
+- Results and ticks you already have stay with the same tests; only their numbers change, and your saved results and mistake notebook show the new numbers.
+
 ## Version 1.0.3.2
 
 - **10 full-length IELTS mock tests (Mock Tests 21–30).** Exactly like test day: Listening (4 parts, 40 questions, about 30 minutes), Reading (3 passages, 40 questions, 60 minutes), Writing (Task 1 and Task 2, 60 minutes) and Speaking (Parts 1–3) — about 2 hours 45 minutes. All Listening recordings and Reading passages are new and original, with real IELTS question types (form and note completion, multiple choice, matching, matching headings, TRUE/FALSE/NOT GIVEN, YES/NO/NOT GIVEN, sentence endings). Each paper can also be taken on its own from the Full Test folders.
