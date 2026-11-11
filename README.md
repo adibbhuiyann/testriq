@@ -29,6 +29,14 @@ Testriq is an exam-practice app with a live AI speaking examiner, AI writing mar
 - **Live judge:** during IELTS speaking tests a live band meter updates after every answer, with a quick tip. It scores the four criteria from what you said (answer development, linking, vocabulary range, idioms, grammar range and slips) and how you said it (speaking rate, pauses, response delay, recognition clarity), across the full band range 3–9.
 - At the end, the AI examiner (when connected) marks Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy and Pronunciation. It uses whole bands per criterion and official rounding for the overall band, and it lists corrections taken from your own answers. Without a connection, the live judge's full report is used.
 
+## Version 1.0.3.2
+
+- **10 full-length IELTS mock tests (Mock Tests 21–30).** Exactly like test day: Listening (4 parts, 40 questions, about 30 minutes), Reading (3 passages, 40 questions, 60 minutes), Writing (Task 1 and Task 2, 60 minutes) and Speaking (Parts 1–3) — about 2 hours 45 minutes. All Listening recordings and Reading passages are new and original, with real IELTS question types (form and note completion, multiple choice, matching, matching headings, TRUE/FALSE/NOT GIVEN, YES/NO/NOT GIVEN, sentence endings). Each paper can also be taken on its own from the Full Test folders.
+- **100 Grammar & Vocabulary tests** (50 new): 20 at each level — Easy, Medium, Hard, Advanced and Expert — every question different, each with an explanation.
+- **Resume or start over.** Opening a test you left part-way now asks whether to resume (with your saved answers) or start over. Works for quizzes, Listening and Reading sections, Writing and mock tests.
+- **AI marking is more reliable on slow connections.** The app now waits up to about two minutes (the server can take up to ~85 s when it has to try several AI models) and stops the clock once the reply starts arriving, so a reply is never cut off. A reply that arrives empty or broken is fetched again automatically.
+- When AI marking still can't finish, the message says why (busy, daily limit, no connection or a short code), instead of "incomplete report".
+
 ## Version 1.0.3.1
 
 - **Completed tests keep their green tick** after closing and reopening the app (before, they only came back after finishing another test).
