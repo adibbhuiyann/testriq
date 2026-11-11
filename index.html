@@ -675,6 +675,21 @@ html[data-theme=dark] .lv5{color:#fca5a5;background:#450a0a80;border-color:#991b
 .lvl-legend span{display:inline-flex;align-items:center;gap:6px}
 .lvl-legend small{color:var(--muted);font-size:.64rem;font-weight:650}
 .tq-pillrow{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
+/* level headings in the Grammar & Vocabulary list */
+.lvl-legend [data-gvjump]{cursor:pointer}
+.gv-sec{--lc:#16a34a;position:relative;margin:14px 0 2px;padding:12px 14px 12px 17px;border:1px solid var(--line);border-radius:16px;background:var(--surface);scroll-margin-top:84px;overflow:hidden}
+.classlist>.gv-sec:first-child{margin-top:0}
+.gv-sec::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--lc)}
+.gv-sec-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.gv-sec-top b{font-size:1rem;font-weight:800;color:var(--ink)}
+.gv-sec-top .lvl{font-size:.68rem;padding:4px 10px 4px 8px}
+.gv-sec-count{margin-left:auto;font-size:.7rem;font-weight:750;color:var(--muted)}
+.gv-sec.all .gv-sec-count{color:#16a34a}
+.gv-sec>small{display:block;margin-top:5px;color:var(--muted);font-size:.74rem;font-weight:600}
+.gv-sec-bar{display:block;height:5px;margin-top:9px;border-radius:99px;background:var(--line);overflow:hidden}
+.gv-sec-bar i{display:block;height:100%;border-radius:99px;background:var(--lc)}
+.gv-sec.gvl1{--lc:#16a34a}.gv-sec.gvl2{--lc:#0284c7}.gv-sec.gvl3{--lc:#ca8a04}.gv-sec.gvl4{--lc:#ea580c}.gv-sec.gvl5{--lc:#dc2626}
+html[data-theme=dark] .gv-sec.gvl1{--lc:#4ade80}html[data-theme=dark] .gv-sec.gvl2{--lc:#38bdf8}html[data-theme=dark] .gv-sec.gvl3{--lc:#facc15}html[data-theme=dark] .gv-sec.gvl4{--lc:#fb923c}html[data-theme=dark] .gv-sec.gvl5{--lc:#f87171}
 
 </style>
 <style id="tq-v102-css">
@@ -5299,47 +5314,139 @@ ${up ? "" : `<button type="button" class="wl-link wl-forgot" data-wl="reset">For
         at = i;
       }
     });
-    const made = GV.tests.map((g) => {
+    // Tests are numbered level by level: 1–20 Easy, 21–40 Medium, 41–60 Hard, 61–80 Advanced, 81–100 Expert.
+    // Each id keeps the number the test was first published with, so saved results, ticks and drafts stay attached.
+    const ordered = GV.tests.slice().sort((x, y) => x.level - y.level || x.n - y.n);
+    const made = ordered.map((g, i) => {
       const L = GV.levels[g.level - 1];
+      const num = i + 1;
       return {
         id: `ielts-gv-${String(g.n).padStart(2, "0")}`,
         exam: "IELTS",
         skill: "Grammar",
         folder: "grammar",
         gv: true,
+        num,
         level: g.level,
         levelName: L.name,
         focus: g.focus,
-        title: `Grammar & Vocabulary · Test ${g.n}`,
-        short: `Test ${g.n} · ${g.focus}`,
+        title: `Grammar & Vocabulary · Test ${num}`,
+        short: `Test ${num} · ${g.focus}`,
         desc: `${L.name} level (about IELTS ${L.band}) · ${g.focus}. Ten questions with an explanation after every answer.`,
         duration: Math.ceil((g.q.length * L.time) / 60),
         questions: g.q.map(([prompt, options, answer, explanation]) => ({ prompt, options, answer, explanation, time: L.time })),
       };
     });
     tests.splice(at < 0 ? tests.length : at + 1, 0, ...made);
+    const gvById = new Map(made.map((t) => [t.id, t]));
+    // first and last test number of each level, e.g. Medium → 21–40
+    const range = GV.levels.map((_, i) => {
+      const nums = made.filter((t) => t.level === i + 1).map((t) => t.num);
+      return nums.length ? [nums[0], nums[nums.length - 1]] : null;
+    });
+    const rangeText = (lv) => (range[lv - 1] ? `${range[lv - 1][0]}–${range[lv - 1][1]}` : "");
+
+    // Older versions numbered these tests differently (Easy 1–10 and 51–60, and so on).
+    // Saved results and notebook entries get the new names; the tests themselves are unchanged.
+    function renameSavedGV() {
+      let changed = false;
+      for (const r of state.results || []) {
+        const t = r && r.testId && gvById.get(r.testId);
+        if (t && r.title !== t.title) {
+          r.title = t.title;
+          changed = true;
+        }
+      }
+      if (state.gvNumbering !== 2) {
+        for (const it of Array.isArray(state.notebook) ? state.notebook : []) {
+          const m = /^Grammar & Vocabulary · Test (\d+)$/.exec((it && it.src) || "");
+          const t = m && gvById.get(`ielts-gv-${m[1].padStart(2, "0")}`);
+          if (t) it.src = t.title;
+        }
+        state.gvNumbering = 2;
+        changed = true;
+      }
+      if (changed) save();
+    }
+    try {
+      renameSavedGV();
+    } catch {}
+    // results can also arrive later, from cloud sync or a restored backup
+    const baseRenderGV = window.render;
+    window.render = function () {
+      try {
+        renameSavedGV();
+      } catch {}
+      return baseRenderGV.apply(this, arguments);
+    };
+
     const lvlPill = (t) =>
       `<i class="lvl lv${t.level}" title="${t.levelName} · about IELTS ${GV.levels[t.level - 1].band}">${t.levelName}</i>`;
     TQ.lvlPill = lvlPill;
+    const levelHead = (lv, done, total) => {
+      const L = GV.levels[lv - 1];
+      const pc = total ? Math.round((done / total) * 100) : 0;
+      return `<div class="gv-sec gvl${lv}${total && done === total ? " all" : ""}" id="gv-lv${lv}"><div class="gv-sec-top">${lvlPill({ level: lv, levelName: L.name })}<b>Tests ${rangeText(lv)}</b><span class="gv-sec-count">${done === total && total ? "✓ " : ""}${done} of ${total} done</span></div><small>About IELTS ${esc(L.band)} · ${L.time} seconds a question</small><span class="gv-sec-bar" aria-hidden="true"><i style="width:${pc}%"></i></span></div>`;
+    };
     const baseFolderPage = window.folderPage;
     window.folderPage = function () {
       let html = baseFolderPage();
       if (!/data-start="ielts-gv-/.test(html)) return html;
+      const rowRe = /<button class="classrow([^"]*)" data-start="(ielts-gv-\d+)">/g;
+      // count finished tests in each level
+      const tally = GV.levels.map(() => ({ done: 0, total: 0 }));
+      for (const m of html.matchAll(rowRe)) {
+        const t = gvById.get(m[2]);
+        if (!t) continue;
+        tally[t.level - 1].total++;
+        if (/\bdone\b/.test(m[1])) tally[t.level - 1].done++;
+      }
+      // each test keeps its level tag; a heading starts each level (Tests 1–20, 21–40 …)
+      let last = 0;
       html = html.replace(
         /(<button class="classrow[^"]*" data-start="(ielts-gv-\d+)">)([\s\S]*?)<span class="cstate">/g,
         (m, open, id, mid) => {
-          const t = tests.find((x) => x.id === id);
-          return t ? `${open}${mid}<span class="cstate">${lvlPill(t)}` : m;
+          const t = gvById.get(id);
+          if (!t) return m;
+          const head = t.level !== last ? levelHead(t.level, tally[t.level - 1].done, tally[t.level - 1].total) : "";
+          last = t.level;
+          return `${head}${open}${mid}<span class="cstate">${lvlPill(t)}`;
         },
       );
       html = html
         .replace("30 seconds per question", "30–50 seconds per question — harder levels give you more time")
         .replace("Four-option questions.", "100 tests of 10 questions: 20 at each of five levels, from Easy to Expert. Every question is different.");
+      // the level key at the top; tapping a level jumps to its tests
       const legend = `<div class="lvl-legend" aria-label="Difficulty levels">${GV.levels
-        .map((L, i) => `<span>${lvlPill({ level: i + 1, levelName: L.name })}<small>≈ ${L.band}</small></span>`)
+        .map(
+          (L, i) =>
+            `<span data-gvjump="${i + 1}" role="button" tabindex="0" aria-label="${L.name}: tests ${rangeText(i + 1)}">${lvlPill({ level: i + 1, levelName: L.name })}<small>≈ ${L.band}</small></span>`,
+        )
         .join("")}</div>`;
       return html.replace('<div class="classlist">', legend + '<div class="classlist">');
     };
+    function jumpToLevel(lv) {
+      const el = document.getElementById("gv-lv" + lv);
+      if (!el) return;
+      // stop just below the sticky header and breadcrumb bar
+      let cover = 0;
+      for (const bar of document.querySelectorAll("header, .crumbbar")) {
+        if (getComputedStyle(bar).position !== "sticky") continue;
+        cover = Math.max(cover, (parseFloat(getComputedStyle(bar).top) || 0) + bar.getBoundingClientRect().height);
+      }
+      const y = el.getBoundingClientRect().top + window.scrollY - cover - 12;
+      window.scrollTo({ top: Math.max(0, y), behavior: state.motion === false ? "auto" : "smooth" });
+    }
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-gvjump]");
+      if (b) jumpToLevel(b.dataset.gvjump);
+    });
+    document.addEventListener("keydown", (e) => {
+      const b = (e.key === "Enter" || e.key === " ") && e.target.closest && e.target.closest("[data-gvjump]");
+      if (!b) return;
+      e.preventDefault();
+      jumpToLevel(b.dataset.gvjump);
+    });
     // the level also shows at the top of the question screen
     const baseTopbar = window.topbar;
     if (typeof baseTopbar === "function")
@@ -7967,7 +8074,7 @@ ${session.shown ? `<p class="muted rv-ask">How well did you remember it?</p><div
   };
 
   /* ---------------------------------------------------------------- server: identify this app and device (for fair daily limits) */
-  const APPV = "1.0.3.2";
+  const APPV = "1.0.3.3";
   const devId = (() => {
     try {
       let d = localStorage.getItem("tqDevice");
